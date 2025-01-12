@@ -10,7 +10,7 @@ if [ ! -d "./emsdk" ]; then
 fi
 
 source ./emsdk/emsdk_env.sh >/dev/null 2>&1
-source ./.venv/bin/activate
+source ./.venv/bin/activate >/dev/null 2>&1
 
 mkdir -p out
 emcc test.c -s WASM=0 -o out/compiled.js -Wno-fastcomp
