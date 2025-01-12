@@ -1,7 +1,11 @@
 #include <emscripten.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "doomgeneric.h"
+#include "doomkeys.h"
 
 uint32_t start_time;
+int frame_count = 0;
 
 uint32_t get_time() {
   return EM_ASM_INT({
@@ -21,29 +25,87 @@ void DG_Init() {
 }
 
 int DG_GetKey(int* pressed, unsigned char* doomKey) {
-  return 0;
+  int key_data = EM_ASM_INT({
+    if (key_queue.length === 0) 
+      return 0;
+    let key_data = key_queue.shift();
+    let key = key_data[0];
+    let pressed = key_data[1];
+    return (pressed << 8) | key;
+  });
+
+  if (key_data == 0)
+    return 0;
+  
+  *pressed = key_data >> 8;
+  *doomKey = key_data & 0xFF;
+  return 1;
 }
 
 void DG_SetWindowTitle(const char * title) {}
 
+int key_to_doomkey(int key) {
+  if (key == 97) //a
+    return KEY_LEFTARROW;
+  if (key == 100) //d
+    return KEY_RIGHTARROW;
+  if (key == 119) //w
+    return KEY_UPARROW;
+  if (key == 115) //s
+    return KEY_DOWNARROW;
+  if (key == 113) //q
+    return KEY_ESCAPE;
+  if (key == 122) //z
+    return KEY_ENTER;
+  if (key == 120) //x
+    return KEY_USE;
+  if (key == 32) //<space>
+    return KEY_FIRE;
+  return -1;
+}
+
 void DG_DrawFrame() {
+  EM_ASM({
+    frame_count = $0;
+    for (let key of Object.keys(key_map)) {
+      let when_pressed = key_map[key];
+      let frame_difference = frame_count - when_pressed;
+      if (frame_difference > 1) {
+        key_queue.push([key, false]);
+        delete key_map[key];
+      }
+      else {
+        key_queue.push([key, true]);
+      }
+    }
+  }, frame_count);
+
   int framebuffer_len = DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4;
   EM_ASM({
-    var framebuffer_ptr = $0;
-    var framebuffer_len = $1;
-    var width = $2;
-    var height = $3;
-    var framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-    for (var y=0; y < height; y++) {
-      var row = Array(width);
-      for (var x=0; x < width; x++) {
-        var index = (y * width + x) * 4;
-        var r = framebuffer[index];
-        var g = framebuffer[index+1];
-        var b = framebuffer[index+2];
-        var avg = (r + g + b) / 3;
-        if (avg > 80) 
+    let framebuffer_ptr = $0;
+    let framebuffer_len = $1;
+    let width = $2;
+    let height = $3;
+    let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
+    for (let y=0; y < height; y++) {
+      let row = Array(width);
+      for (let x=0; x < width; x++) {
+        let index = (y * width + x) * 4;
+        let r = framebuffer[index];
+        let g = framebuffer[index+1];
+        let b = framebuffer[index+2];
+        let avg = (r + g + b) / 3;
+        //let avg = (x/width) * 255;
+        if (avg > 200)
           row[x] = "_";
+        else if (avg > 150)
+          row[x] = "::";
+        else if (avg > 100)
+          row[x] = "?";
+        else if (avg > 50)
+          row[x] = "//";
+        else if (avg > 25)
+          row[x] = "b";
         else
           row[x] = "#";
       }
@@ -53,7 +115,14 @@ void DG_DrawFrame() {
 }
 
 void doomjs_tick() {
+  int start = get_time();
   doomgeneric_Tick();
+  int end = get_time();
+  frame_count ++;
+
+  if (frame_count % 20 == 0) {
+    printf("frame time: %i ms\n", end - start);
+  }
 }
 
 int main(int argc, char **argv) {

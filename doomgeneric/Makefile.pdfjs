@@ -6,7 +6,7 @@ else
 endif
 
 CC=emcc
-CFLAGS+=-sWASM=0 -Wno-fastcomp -static '-sEXPORTED_FUNCTIONS=[_main, _doomjs_tick]'
+CFLAGS+=-sWASM=0 -Wno-fastcomp -static '-sEXPORTED_FUNCTIONS=[_main,_doomjs_tick,_key_to_doomkey]'
 LDFLAGS+=--embed-file doom1.wad
 LIBS+=-lm -lc
 
