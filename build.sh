@@ -21,6 +21,6 @@ fi
 emmake make -C doomgeneric -f Makefile.pdfjs -j$(nproc --all)
 
 mkdir -p out
-cat pre.js doomgeneric/doomgeneric.js > out/compiled.js
-#emcc test.c -s WASM=0 -o out/compiled.js -Wno-fastcomp
+python3 embed_file.py file_template.js doomgeneric/doom1.wad out/data.js
+cat pre.js out/data.js doomgeneric/doomgeneric.js > out/compiled.js
 python3 generate.py out/compiled.js out/doom.pdf

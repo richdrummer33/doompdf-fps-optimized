@@ -2,6 +2,7 @@
 #include <emscripten.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "doomgeneric.h"
 #include "doomkeys.h"
 
@@ -129,6 +130,12 @@ void doomjs_tick() {
 }
 
 int main(int argc, char **argv) {
+  EM_ASM({
+    let stream = FS.open("/doom1.wad", "w+");
+    FS.write(stream, file_data, 0, file_data.length, 0);
+    FS.close(stream);
+  });
+
   doomgeneric_Create(argc, argv);
 
   EM_ASM({

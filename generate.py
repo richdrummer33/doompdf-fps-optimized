@@ -89,7 +89,7 @@ if __name__ == "__main__":
   writer = PdfWriter()
   page = create_page(width * scale, height * scale + 220)
   page.AA = PdfDict()
-  page.AA.O = create_script("try {"+js+"} catch (e) {app.alert(e.stack)}");
+  page.AA.O = create_script("try {"+js+"} catch (e) {app.alert(e.stack || e)}");
 
   fields = []
   for i in range(0, height):

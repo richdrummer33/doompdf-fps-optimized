@@ -63,3 +63,4 @@ function reset_input_box() {
   globalThis.getField("key_input").value = "Type here for keyboard controls.";
 }
 app.setInterval("reset_input_box()", 1000);
+

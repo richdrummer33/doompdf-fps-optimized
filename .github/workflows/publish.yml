@@ -16,7 +16,7 @@ jobs:
           python3 -m venv .venv
           source .venv/bin/activate
           pip3 install -r requirements.txt
-          CFLAGS=-O1 ./build.sh
+          CFLAGS=-O3 ./build.sh
           cp index.html out
           rm out/compiled.js
 
