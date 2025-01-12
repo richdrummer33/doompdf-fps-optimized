@@ -64,15 +64,19 @@ if __name__ == "__main__":
   scale = 2
 
   writer = PdfWriter()
-  page = create_page(width * scale, height * scale)
+  page = create_page(width * scale, height * scale + 250)
   add_js(page, "try {"+js+"} catch (e) {app.alert(e.stack)}");
 
   fields = []
   for i in range(0, height):
-    field = create_field(f"field_{i}", 0, i*scale, width*scale, scale, [255, 255, 255], "")
+    field = create_field(f"field_{i}", 0, i*scale + 250, width*scale, scale, [255, 255, 255], "")
     fields.append(field)
-
+  for i in range(0, 20):
+    field = create_field(f"console_{i}", 10, 10 + i*10, 400, 10, [255, 255, 255], "")
+    fields.append(field)
   page.Annots = PdfArray(fields)
+
+  page2 = create_page(width * scale, height * scale)
 
   writer.addpage(page)
   writer.write(sys.argv[2])

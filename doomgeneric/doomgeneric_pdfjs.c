@@ -42,7 +42,7 @@ void DG_DrawFrame() {
         var g = framebuffer[index+1];
         var b = framebuffer[index+2];
         var avg = (r + g + b) / 3;
-        if (avg > 127) 
+        if (avg > 80) 
           row[x] = "_";
         else
           row[x] = "#";
@@ -52,13 +52,15 @@ void DG_DrawFrame() {
   }, DG_ScreenBuffer, framebuffer_len, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 }
 
+void doomjs_tick() {
+  doomgeneric_Tick();
+}
+
 int main(int argc, char **argv) {
   doomgeneric_Create(argc, argv);
 
-  //emscripten_set_main_loop(doomgeneric_Tick, 0, 1);
-
   EM_ASM({
-    app.alert(1);
+    app.setInterval("_doomjs_tick()", 0);
   });
   return 0;
 }
