@@ -12,3 +12,6 @@ Release/
 /emsdk/
 /.venv/
 /out/
+
+/doomgeneric/doomgeneric.js
+/doomgeneric/*.wad
