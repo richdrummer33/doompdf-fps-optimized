@@ -10,3 +10,5 @@ Debug/
 Release/
 
 /emsdk/
+/.venv/
+/out/

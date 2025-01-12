@@ -10,4 +10,8 @@ if [ ! -d "./emsdk" ]; then
 fi
 
 source ./emsdk/emsdk_env.sh >/dev/null 2>&1
+source ./.venv/bin/activate
 
+mkdir -p out
+emcc test.c -s WASM=0 -o out/compiled.js -Wno-fastcomp
+python3 generate.py out/compiled.js out/out.pdf
