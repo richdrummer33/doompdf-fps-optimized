@@ -120,6 +120,7 @@ if __name__ == "__main__":
     create_text(320, 190, 24, "DoomPDF"),
     create_text(450, 162, 12, "Controls:"),
     create_text(450, 148, 8, "WASD, q = esc, z = enter, e = use, space = fire"),
+    create_text(450, 136, 8, "shift+WASD = sprint, m = map, 1-7 = weapons"),
     create_text(320, 22, 8, "Source code: https://github.com/ading2210/doompdf"),
     create_text(320, 10, 8, "Note: This PDF only works in Chromium-based browsers.")
   ])

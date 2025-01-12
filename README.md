@@ -1,67 +1,44 @@
-# doomgeneric
-The purpose of doomgeneric is to make porting Doom easier.
-Of course Doom is already portable but with doomgeneric it is possible with just a few functions.
+# DoomPDF
 
-To try it you will need a WAD file (game data). If you don't own the game, shareware version is freely available (doom1.wad).
+This is a Doom source port that runs inside a PDF file. 
 
-# porting
-Create a file named doomgeneric_yourplatform.c and just implement these functions to suit your platform.
-* DG_Init
-* DG_DrawFrame
-* DG_SleepMs
-* DG_GetTicksMs
-* DG_GetKey
+## Javascript in a PDF
 
-|Functions            |Description|
-|---------------------|-----------|
-|DG_Init              |Initialize your platfrom (create window, framebuffer, etc...).
-|DG_DrawFrame         |Frame is ready in DG_ScreenBuffer. Copy it to your platform's screen.
-|DG_SleepMs           |Sleep in milliseconds.
-|DG_GetTicksMs        |The ticks passed since launch in milliseconds.
-|DG_GetKey            |Provide keyboard events.
-|DG_SetWindowTitle    |Not required. This is for setting the window title as Doom sets this from WAD file.
+You might expect PDF files to only be comprised of static documents, but surprisingly, the PDF file format supports Javascript with its own separate standard library. Modern browsers (Chromium, Firefox) implement this as part of their PDF engines. However, the APIs that are available in the browser are much more limited. 
 
-### main loop
-At start, call doomgeneric_Create().
+The full specfication for the JS in PDFs was only ever implemented by Adobe Acrobat, and it contains some ridiculous things like the ability to do [3D rendering](https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/JS_API_AcroJS.html#annot3d), make [HTTP requests](https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/JS_API_AcroJS.html#net-http), and [detect every monitor connected to the user's system](https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/JS_API_AcroJS.html#monitor). However, on Chromium and other browsers, only a tiny amount of this API surface was implemented, due to obvious security concerns. With this, we can do whatever computation we want, just with some very limited IO.
 
-In a loop, call doomgeneric_Tick().
+## Porting Doom
 
-In simplest form:
+C code can be compiled to run within a PDF using and old version of Emscripten that targets [asm.js](https://en.wikipedia.org/wiki/Asm.js) instead of WebAssembly. Then, all that's needed is a way to get key inputs, and a framebuffer for the output. Inputs are fairly straightforward, since Chromium's PDF engine supports text fields and buttons. Getting a good looking and fast enough framebuffer is a lot more of a challenge though.
+
+Previous interactive PDF projects I've seen use individual text fields that are toggled on/off to make individual pixels. However, Doom's resolution is 320x200 which would mean thousands of text fields would have to be toggled every frame, which is infeasible. Instead, this port uses a separate text field for each row in the screen, then it sets their contents to various ASCII characters. I managed to get a 6 color monochrome output this way, which is enough for things to be legible in-game. The performance of this method is pretty poor but playable, since updating all of that text takes around 80ms per frame. 
+
+I also implemented a scrolling text console using 25 stacked text fields. The stdout stream from Emscripten is redirected to there. This let me debug a lot easier because otherwise there is no console logging method available (the proper `console.println` is unimplemented in Chrome).
+
+## Credits
+
+Inspired by: [horrifying-pdf-experiments](https://github.com/osnr/horrifying-pdf-experiments) and [pdftris](https://github.com/ThomasRinsma/pdftris)
+
+## License
+
+This repository is licensed under the GNU GPL v2.
+
 ```
-int main(int argc, char **argv)
-{
-    doomgeneric_Create(argc, argv);
+ading2210/doompdf - Doom running inside a PDF file
+Copyright (C) 2025 ading2210
 
-    while (1)
-    {
-        doomgeneric_Tick();
-    }
-    
-    return 0;
-}
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 ```
-
-# sound
-Sound is much harder to implement! If you need sound, take a look at SDL port. It fully supports sound and music! Where to start? Define FEATURE_SOUND, assign DG_sound_module and DG_music_module.
-
-# platforms
-Ported platforms include Windows, X11, SDL, emscripten. Just look at (doomgeneric_win.c, doomgeneric_xlib.c, doomgeneric_sdl.c).
-Makefiles provided for each platform.
-
-## emscripten
-You can try it directly here:
-https://ozkl.github.io/doomgeneric/
-
-emscripten port is based on SDL port, so it supports sound and music! For music, timidity backend is used.
-
-## Windows
-![Windows](screenshots/windows.png)
-
-## X11 - Ubuntu
-![Ubuntu](screenshots/ubuntu.png)
-
-## X11 - FreeBSD
-![FreeBSD](screenshots/freebsd.png)
-
-## SDL
-![SDL](screenshots/sdl.png)

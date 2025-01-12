@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <emscripten.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,20 +62,24 @@ int key_to_doomkey(int key) {
     return KEY_USE;
   if (key == 32) //<space>
     return KEY_FIRE;
-  return -1;
+  if (key == 109) //,
+    return KEY_TAB;
+  if (key == 95) //_
+    return KEY_RSHIFT;
+  return tolower(key);
 }
 
 void DG_DrawFrame() {
   EM_ASM({
-    frame_count = $0;
     for (let key of Object.keys(pressed_keys)) {
       key_queue.push([key, !!pressed_keys[key]]);
 
-      if (pressed_keys[key] === 2) {
+      if (pressed_keys[key] === 0)
+        delete pressed_keys[key];
+      if (pressed_keys[key] === 2) 
         pressed_keys[key] = 0;
-      }
     }
-  }, frame_count);
+  });
 
   int framebuffer_len = DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4;
   EM_ASM({
@@ -91,7 +96,9 @@ void DG_DrawFrame() {
         let g = framebuffer[index+1];
         let b = framebuffer[index+2];
         let avg = (r + g + b) / 3;
-        //let avg = (x/width) * 255;
+        //let avg = (x/width) * 255; // (uncomment for a gradient test)
+
+        //note - these ascii characters were all picked because they have the same width in the sans-serif font that chrome decided to use for text fields
         if (avg > 200)
           row[x] = "_";
         else if (avg > 150)

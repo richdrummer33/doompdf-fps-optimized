@@ -1,6 +1,5 @@
 var Module = {};
 var lines = [];
-var frame_count = 0;
 
 var pressed_keys = {};
 var key_queue = [];
@@ -29,6 +28,10 @@ Module.printErr = function(msg) {
 }
 
 function key_pressed(key_str) {
+  if ("WASD".includes(key_str)) {
+    key_str = key_str.toLowerCase();
+    key_pressed("_") //placeholder for shift;
+  }
   let keycode = key_str.charCodeAt(0);
   let doomkey = _key_to_doomkey(keycode);
   print_msg("pressed: " + key_str + " " + keycode + " ");
@@ -55,3 +58,8 @@ function key_up(key_str) {
     return;
   pressed_keys[doomkey] = 0;
 }
+
+function reset_input_box() {
+  globalThis.getField("key_input").value = "Type here for keyboard controls.";
+}
+app.setInterval("reset_input_box()", 1000);
