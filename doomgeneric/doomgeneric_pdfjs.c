@@ -57,7 +57,7 @@ int key_to_doomkey(int key) {
     return KEY_ESCAPE;
   if (key == 122) //z
     return KEY_ENTER;
-  if (key == 120) //x
+  if (key == 101) //e
     return KEY_USE;
   if (key == 32) //<space>
     return KEY_FIRE;
@@ -67,15 +67,11 @@ int key_to_doomkey(int key) {
 void DG_DrawFrame() {
   EM_ASM({
     frame_count = $0;
-    for (let key of Object.keys(key_map)) {
-      let when_pressed = key_map[key];
-      let frame_difference = frame_count - when_pressed;
-      if (frame_difference > 1) {
-        key_queue.push([key, false]);
-        delete key_map[key];
-      }
-      else {
-        key_queue.push([key, true]);
+    for (let key of Object.keys(pressed_keys)) {
+      key_queue.push([key, !!pressed_keys[key]]);
+
+      if (pressed_keys[key] === 2) {
+        pressed_keys[key] = 0;
       }
     }
   }, frame_count);
@@ -120,7 +116,7 @@ void doomjs_tick() {
   int end = get_time();
   frame_count ++;
 
-  if (frame_count % 20 == 0) {
+  if (frame_count % 60 == 0) {
     printf("frame time: %i ms\n", end - start);
   }
 }
