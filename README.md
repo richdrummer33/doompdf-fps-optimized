@@ -2,6 +2,8 @@
 
 This is a Doom source port that runs inside a PDF file. 
 
+Play it here: [doom.pdf](https://doompdf.pages.dev/doom.pdf)
+
 ## Javascript in a PDF
 
 You might expect PDF files to only be comprised of static documents, but surprisingly, the PDF file format supports Javascript with its own separate standard library. Modern browsers (Chromium, Firefox) implement this as part of their PDF engines. However, the APIs that are available in the browser are much more limited. 
