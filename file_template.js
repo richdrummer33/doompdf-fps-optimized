@@ -12,4 +12,17 @@ function b64_to_uint8array(str) {
   return new Uint8Array(result);
 }
 
-var file_data = b64_to_uint8array("__b64_data__");
+var file_data = b64_to_uint8array("__iwad_file__");
+var file_name = "__iwad_filename__"
+var file2_data = b64_to_uint8array("__wad_file__");
+var file2_name = "__wad_filename__"
+
+if (file_data.length <= 9) {
+  throw "Error: IWAD not found.";
+}
+if (file2_data.length <= 9) {
+  file2_data = null;
+}
+else {
+  Module.arguments = ["-file", file2_name];
+}

@@ -64,3 +64,9 @@ function reset_input_box() {
 }
 app.setInterval("reset_input_box()", 1000);
 
+function write_file(filename, data) {
+  let stream = FS.open("/"+filename, "w+");
+  FS.write(stream, data, 0, data.length, 0);
+  FS.close(stream);
+}
+

@@ -131,9 +131,10 @@ void doomjs_tick() {
 
 int main(int argc, char **argv) {
   EM_ASM({
-    let stream = FS.open("/doom1.wad", "w+");
-    FS.write(stream, file_data, 0, file_data.length, 0);
-    FS.close(stream);
+    write_file(file_name, file_data);
+    if (file2_data) {
+      write_file(file2_name, file2_data);    
+    }
   });
 
   doomgeneric_Create(argc, argv);

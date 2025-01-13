@@ -17,8 +17,6 @@ jobs:
           source .venv/bin/activate
           pip3 install -r requirements.txt
           env CFLAGS=-O3 ./build.sh
-          cp index.html out
-          rm out/compiled.js
           du -sh out/*
 
       - name: Publish to Cloudflare Pages
