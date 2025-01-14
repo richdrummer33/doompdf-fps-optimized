@@ -20,6 +20,20 @@ Previous interactive PDF projects I've seen use individual text fields that are 
 
 I also implemented a scrolling text console using 25 stacked text fields. The stdout stream from Emscripten is redirected to there. This let me debug a lot easier because otherwise there is no console logging method available (the proper `console.println` is unimplemented in Chrome).
 
+## Build Instructions
+
+Clone this repository and run the following commands:
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip3 install -r requirements.txt
+env CFLAGS=-O3 ./build.sh
+```
+
+The `build.sh` script will download Emscripten `1.39.20` automatically.
+
+The generated files will be in the `out/` directory. Then you can run `(cd out; python3 -m http.server)` to serve the files on a web server.
+
 ## Credits
 
 Inspired by: [horrifying-pdf-experiments](https://github.com/osnr/horrifying-pdf-experiments) and [pdftris](https://github.com/ThomasRinsma/pdftris)

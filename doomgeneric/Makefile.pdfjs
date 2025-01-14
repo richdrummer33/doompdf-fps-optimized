@@ -6,8 +6,8 @@ else
 endif
 
 CC=emcc
-CFLAGS+=-sWASM=0 -Wno-fastcomp -static '-sEXPORTED_FUNCTIONS=[_main,_doomjs_tick,_key_to_doomkey]' -sSINGLE_FILE=1
-LDFLAGS+=
+CFLAGS+=-sWASM=0 -Wno-fastcomp -static '-sEXPORTED_FUNCTIONS=[_main,_doomjs_tick,_key_to_doomkey]'
+LDFLAGS+=-sSINGLE_FILE=1
 LIBS+=-lm -lc
 
 # subdirectory for objects

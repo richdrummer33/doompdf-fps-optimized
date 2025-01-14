@@ -1,6 +1,6 @@
 var Module = {};
 var lines = [];
-
+var js_buffer = [];
 var pressed_keys = {};
 var key_queue = [];
 
@@ -70,3 +70,46 @@ function write_file(filename, data) {
   FS.close(stream);
 }
 
+function create_framebuffer(width, height) {
+  js_buffer = [];
+  for (let y=0; y < height; y++) {
+    let row = Array(width);
+    for (let x=0; x < width; x++) {
+      row[x] = "_";
+    }
+    js_buffer.push(row);
+  }
+}
+
+function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
+  let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
+  for (let y=0; y < height; y++) {
+    let row = js_buffer[y];
+    let old_row = row.join("");
+    for (let x=0; x < width; x++) {
+      let index = (y * width + x) * 4;
+      let r = framebuffer[index];
+      let g = framebuffer[index+1];
+      let b = framebuffer[index+2];
+      let avg = (r + g + b) / 3;
+      //let avg = (x/width) * 255; // (uncomment for a gradient test)
+
+      //note - these ascii characters were all picked because they have the same width in the sans-serif font that chrome decided to use for text fields
+      if (avg > 200)
+        row[x] = "_";
+      else if (avg > 150)
+        row[x] = "::";
+      else if (avg > 100)
+        row[x] = "?";
+      else if (avg > 50)
+        row[x] = "//";
+      else if (avg > 25)
+        row[x] = "b";
+      else
+        row[x] = "#";
+    }
+    let row_str = row.join("");
+    if (row_str !== old_row)
+      globalThis.getField("field_"+(height-y-1)).value = row_str;
+  }
+}

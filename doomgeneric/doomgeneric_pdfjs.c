@@ -84,37 +84,7 @@ void DG_DrawFrame() {
 
   int framebuffer_len = DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4;
   EM_ASM({
-    let framebuffer_ptr = $0;
-    let framebuffer_len = $1;
-    let width = $2;
-    let height = $3;
-    let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-    for (let y=0; y < height; y++) {
-      let row = Array(width);
-      for (let x=0; x < width; x++) {
-        let index = (y * width + x) * 4;
-        let r = framebuffer[index];
-        let g = framebuffer[index+1];
-        let b = framebuffer[index+2];
-        let avg = (r + g + b) / 3;
-        //let avg = (x/width) * 255; // (uncomment for a gradient test)
-
-        //note - these ascii characters were all picked because they have the same width in the sans-serif font that chrome decided to use for text fields
-        if (avg > 200)
-          row[x] = "_";
-        else if (avg > 150)
-          row[x] = "::";
-        else if (avg > 100)
-          row[x] = "?";
-        else if (avg > 50)
-          row[x] = "//";
-        else if (avg > 25)
-          row[x] = "b";
-        else
-          row[x] = "#";
-      }
-      globalThis.getField("field_"+(height-y-1)).value = row.join("");
-    }
+    update_framebuffer($0, $1, $2, $3);
   }, DG_ScreenBuffer, framebuffer_len, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 }
 
@@ -124,12 +94,17 @@ void doomjs_tick() {
   int end = get_time();
   frame_count ++;
 
-  if (frame_count % 60 == 0) {
-    printf("frame time: %i ms\n", end - start);
+  if (frame_count % 30 == 0) {
+    int fps = 1000 / (end - start);
+    printf("frame time: %i ms (%i fps)\n", end - start, fps);
   }
 }
 
 int main(int argc, char **argv) {
+  EM_ASM({
+    create_framebuffer($0, $1);
+  }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+
   EM_ASM({
     write_file(file_name, file_data);
     if (file2_data) {
