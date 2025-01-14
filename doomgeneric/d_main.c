@@ -166,6 +166,33 @@ extern  boolean setsizeneeded;
 extern  int             showMessages;
 void R_ExecuteSetViewSize (void);
 
+boolean wipe_active = false;
+extern int frame_count;
+void display_wipe() {
+    static int wipestart;
+    boolean done;
+
+    if (!wipe_active) {
+        //avoid wiping on the first frame 
+        if (frame_count == 0)
+            return;
+        wipe_active = true;
+        wipe_EndScreen(0, 0, SCREENWIDTH, SCREENHEIGHT);
+        wipestart = I_GetTime () - 1;
+        return;
+    }
+    int nowtime = I_GetTime ();
+    int tics = nowtime - wipestart;
+    wipestart = nowtime;
+    done = wipe_ScreenWipe(wipe_Melt, 0, 0, SCREENWIDTH, SCREENHEIGHT, tics);
+    I_UpdateNoBlit ();
+    M_Drawer ();                            // menu is drawn even on top of wipes
+    I_FinishUpdate ();                      // page flip or blit buffer
+
+    if (!done) return;
+    wipe_active = false;
+}
+
 void D_Display (void)
 {
     static  boolean		viewactivestate = false;
@@ -304,30 +331,8 @@ void D_Display (void)
 	I_FinishUpdate ();              // page flip or blit buffer
 	return;
     }
-    
-    /*
-    // wipe update
-    wipe_EndScreen(0, 0, SCREENWIDTH, SCREENHEIGHT);
 
-    wipestart = I_GetTime () - 1;
-
-    do
-    {
-	do
-	{
-	    nowtime = I_GetTime ();
-	    tics = nowtime - wipestart;
-            I_Sleep(1);
-	} while (tics <= 0);
-        
-	wipestart = nowtime;
-	done = wipe_ScreenWipe(wipe_Melt
-			       , 0, 0, SCREENWIDTH, SCREENHEIGHT, tics);
-	I_UpdateNoBlit ();
-	M_Drawer ();                            // menu is drawn even on top of wipes
-	I_FinishUpdate ();                      // page flip or blit buffer
-    } while (!done);
-    */
+    display_wipe();
 }
 
 //
@@ -406,17 +411,22 @@ boolean D_GrabMouseCallback(void)
 
 void doomgeneric_Tick()
 {
-    // frame syncronous IO operations
-    I_StartFrame ();
+    if (!wipe_active) {
+        // frame syncronous IO operations
+        I_StartFrame ();
 
-    TryRunTics (); // will run at least one tic
+        TryRunTics (); // will run at least one tic
 
-    S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
+        S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
 
-    // Update display, next frame, with current state.
-    if (screenvisible)
-    {
-        D_Display ();
+        // Update display, next frame, with current state.
+        if (screenvisible)
+        {
+            D_Display ();
+        }
+    }
+    else {
+        display_wipe();
     }
 }
 
@@ -1430,7 +1440,7 @@ void D_DoomMain (void)
 
         // The BFG edition doesn't have the "low detail" menu option (fair
         // enough). But bizarrely, it reuses the M_GDHIGH patch as a label
-        // for the options menu (says "Fullscreen:"). Why the perpetrators
+        // for the options menu (says "is_fullscreen:"). Why the perpetrators
         // couldn't just add a new graphic lump and had to reuse this one,
         // I don't know.
         //

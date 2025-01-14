@@ -1,7 +1,6 @@
 #include <ctype.h>
 #include <emscripten.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include "doomgeneric.h"
 #include "doomkeys.h"
@@ -16,7 +15,6 @@ uint32_t get_time() {
 }
 
 void DG_SleepMs(uint32_t ms) {}
-
 
 uint32_t DG_GetTicksMs() {
   return get_time() - start_time;
