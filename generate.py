@@ -87,13 +87,13 @@ if __name__ == "__main__":
   scale = 2
 
   writer = PdfWriter()
-  page = create_page(width * scale, height * scale + 220)
+  page = create_page(width * scale-8, height * scale + 220)
   page.AA = PdfDict()
   page.AA.O = create_script("try {"+js+"} catch (e) {app.alert(e.stack || e)}");
 
   fields = []
   for i in range(0, height):
-    field = create_field(f"field_{i}", 0, i*scale + 220, width*scale, scale, "")
+    field = create_field(f"field_{i}", 0, i*scale + 220, width*scale-8, scale, "")
     fields.append(field)
   for i in range(0, 25):
     field = create_field(f"console_{i}", 8, 8 + i*8, 300, 8, "")
