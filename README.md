@@ -20,6 +20,8 @@ Previous interactive PDF projects I've seen use individual text fields that are 
 
 I also implemented a scrolling text console using 25 stacked text fields. The stdout stream from Emscripten is redirected to there. This let me debug a lot easier because otherwise there is no console logging method available (the proper `console.println` is unimplemented in Chrome).
 
+There's also a feature to insert custom WAD files into the PDF. You can go to https://doompdf.pages.dev/, select your WADs, and download a newly generated PDF file with those WADs preloaded. 
+
 ## Build Instructions
 
 Clone this repository and run the following commands:
@@ -30,13 +32,17 @@ pip3 install -r requirements.txt
 env CFLAGS=-O3 ./build.sh
 ```
 
-The `build.sh` script will download Emscripten `1.39.20` automatically.
+The `build.sh` script will download Emscripten `1.39.20` automatically. You must be on Linux to build this. 
 
 The generated files will be in the `out/` directory. Then you can run `(cd out; python3 -m http.server)` to serve the files on a web server.
 
 ## Credits
 
-Inspired by: [horrifying-pdf-experiments](https://github.com/osnr/horrifying-pdf-experiments) and [pdftris](https://github.com/ThomasRinsma/pdftris)
+This port is made by [@ading2210](https://github.com/ading2210/).
+
+Forked from [doomgeneric](https://github.com/ozkl/doomgeneric).
+
+Inspired by [horrifying-pdf-experiments](https://github.com/osnr/horrifying-pdf-experiments) and [pdftris](https://github.com/ThomasRinsma/pdftris).
 
 ## License
 
