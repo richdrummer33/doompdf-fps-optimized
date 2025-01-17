@@ -8,13 +8,13 @@ on:
   workflow_dispatch:
 
 env:
-  EMSCRIPTEN_VERSION: 3.1.29-fastcomp  # Desired Emscripten version for fastcomp
-  PYTHON_VERSION: 3.11                 # Specific Python version for consistency
+  EMSCRIPTEN_VERSION: 3.1.29  # Desired Emscripten version
+  PYTHON_VERSION: 3.11        # Specific Python version for consistency
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
       with:
@@ -26,11 +26,12 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'  # Built-in pip caching
     
-    - name: Setup Emscripten
-      uses: numworks/setup-emscripten@v1
+    - name: Set up Emscripten
+      uses: docker://trzeci/emscripten:3.1.29
       with:
-        sdk: ${{ env.EMSCRIPTEN_VERSION }}
-    
+        args: |
+          echo "Emscripten 3.1.29 set up in Docker!"
+
     - name: Verify Emscripten Installation
       run: emcc --version
     
