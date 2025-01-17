@@ -1,16 +1,13 @@
 name: Build PDF DOOM
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-
 env:
-  EMSCRIPTEN_VERSION: 3.1.45  # More recent, stable version
-  PYTHON_VERSION: 3.11        # Specific version for consistency
-
+  EMSCRIPTEN_VERSION: 1.39.20-fastcomp  # Source repo's version
+  PYTHON_VERSION: 3.11                  # Specific Python version for consistency
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,12 +16,12 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 1  # Shallow clone for faster checkout
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'    # Built-in pip caching
+        cache: 'pip'  # Built-in pip caching
     
     - name: Cache Emscripten
       id: cache-emsdk
@@ -46,22 +43,25 @@ jobs:
           cd ..
         fi
         source ./emsdk/emsdk_env.sh
-        # Verify emcc installation and cache its output
+        # Verify Emscripten installation
         emcc --version
     
     - name: Setup virtual environment
       run: |
         python -m venv .venv
         source .venv/bin/activate
-        pip install pdfrw  # Install required Python package
+        pip install -r requirements.txt  # Ensure all dependencies are installed
     
-    - name: Download DOOM WAD with retry
+    - name: Download DOOM WAD if not present
       run: |
-        wget -O doomgeneric/doom1.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad || \
-        wget -O doomgeneric/doom1.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad || \
-        wget -O doomgeneric/doom1.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad
+        if [ ! -f "doomgeneric/doom1.wad" ]; then
+          echo "doom1.wad not found. Downloading..."
+          wget -O doomgeneric/doom1.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad
+        else
+          echo "doom1.wad already exists. Skipping download."
+        fi
     
-    - name: Build
+    - name: Build only if required
       run: |
         source .venv/bin/activate
         source ./emsdk/emsdk_env.sh
@@ -70,22 +70,28 @@ jobs:
         export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
         export PATH="/usr/lib/ccache:$PATH"
         
-        # Use all available cores for compilation and enable shell environment
-        export EMCC_CFLAGS="-sENVIRONMENT=web,shell"
-        emmake make -C doomgeneric -f Makefile.pdfjs -j$(nproc)
-        
-        # Create output directory and copy web files
-        mkdir -p out
-        cp web/* out/
-        
-        # Generate the final PDFs
-        python3 embed_file.py file_template.js doomgeneric/doom1.wad out/data.js
-        cat pre.js out/data.js doomgeneric/doomgeneric.js > out/compiled.js
-        cat pre.js file_template.js doomgeneric/doomgeneric.js > out/compiled_nowad.js
-        
-        python3 generate.py out/compiled.js out/doom.pdf
-        python3 generate.py out/compiled_nowad.js out/doom_nowad.pdf
-    
+        # Check if a rebuild is required
+        if [[ ! -f "out/compiled.js" || \
+              "out/compiled.js" -ot "doomgeneric/doom1.wad" || \
+              "out/compiled.js" -ot "pre.js" || \
+              "out/compiled.js" -ot "doomgeneric/doomgeneric.js" ]]; then
+          echo "Building as inputs have changed..."
+          
+          emmake make -C doomgeneric -f Makefile.pdfjs -j$(nproc)
+          
+          mkdir -p out
+          cp web/* out/
+          
+          python3 embed_file.py file_template.js doomgeneric/doom1.wad out/data.js
+          cat pre.js out/data.js doomgeneric/doomgeneric.js > out/compiled.js
+          cat pre.js file_template.js doomgeneric/doomgeneric.js > out/compiled_nowad.js
+          
+          python3 generate.py out/compiled.js out/doom.pdf
+          python3 generate.py out/compiled_nowad.js out/doom_nowad.pdf
+        else
+          echo "No changes detected. Skipping build."
+        fi
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
@@ -94,8 +100,7 @@ jobs:
           out/doom.pdf
           out/doom_nowad.pdf
         retention-days: 7  # Adjust based on your needs
-    
-    # Optional: Add size check for the output
+
     - name: Check output size
       run: |
         echo "PDF sizes:"
