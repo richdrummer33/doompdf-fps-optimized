@@ -38,7 +38,7 @@ function key_pressed(key_str) {
   }
   let keycode = key_str.charCodeAt(0);
   let doomkey = _key_to_doomkey(keycode);
-  print_msg("pressed: " + key_str + " " + keycode + " ");
+  print_msg("pressed... " + key_str + " " + keycode + " ");
   if (doomkey === -1) 
     return;
 
@@ -48,7 +48,7 @@ function key_pressed(key_str) {
 function key_down(key_str) {
   let keycode = key_str.charCodeAt(0);
   let doomkey = _key_to_doomkey(keycode);
-  print_msg("key down: " + key_str + " " + keycode + " ");
+  print_msg("key down.. " + key_str + " " + keycode + " ");
   if (doomkey === -1) 
     return;
   pressed_keys[doomkey] = 1;
@@ -57,7 +57,7 @@ function key_down(key_str) {
 function key_up(key_str) {
   let keycode = key_str.charCodeAt(0);
   let doomkey = _key_to_doomkey(keycode);
-  print_msg("key up: " + key_str + " " + keycode + " ");
+  print_msg("key up... " + key_str + " " + keycode + " ");
   if (doomkey === -1) 
     return;
   pressed_keys[doomkey] = 0;
