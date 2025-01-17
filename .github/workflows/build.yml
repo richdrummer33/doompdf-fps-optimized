@@ -26,7 +26,16 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'  # Built-in pip caching
 
-    - name: Clone and Build Fastcomp
+    - name: Restore Fastcomp Cache
+      uses: actions/cache@v3
+      id: fastcomp-cache
+      with:
+        path: |
+          ${{ github.workspace }}/fastcomp/build
+        key: fastcomp-build-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}
+
+    - name: Build Fastcomp (if not cached)
+      if: steps.fastcomp-cache.outputs.cache-hit != 'true'
       run: |
         git clone --branch ${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }} https://github.com/emscripten-core/emscripten-fastcomp.git fastcomp
         cd fastcomp
@@ -36,19 +45,22 @@ jobs:
         cmake .. -DCMAKE_BUILD_TYPE=Release
         make -j$(nproc)
         cd ../..
-        export LLVM=$GITHUB_WORKSPACE/fastcomp/build/bin
-        export PATH=$LLVM:$PATH
-        echo "Fastcomp LLVM installation completed."
 
-    - name: Install Emscripten SDK
+    - name: Configure Fastcomp Environment
       run: |
-        git clone https://github.com/emscripten-core/emsdk.git
-        cd emsdk
-        ./emsdk install sdk-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}-64bit
-        ./emsdk activate sdk-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}-64bit
-        cd ..
-        source ./emsdk/emsdk_env.sh
-        emcc --version  # Verify Emscripten Fastcomp installation
+        # Set paths for Fastcomp LLVM
+        export LLVM=${{ github.workspace }}/fastcomp/build/bin
+        export PATH=$LLVM:$PATH
+        export EMSCRIPTEN=$LLVM/..
+        
+        # Create a simple environment script
+        echo "export LLVM=${{ github.workspace }}/fastcomp/build/bin" > emsdk_env.sh
+        echo "export PATH=\$LLVM:\$PATH" >> emsdk_env.sh
+        echo "export EMSCRIPTEN=\$LLVM/.." >> emsdk_env.sh
+
+        # Verify the configuration
+        source ./emsdk_env.sh
+        emcc --version  # Ensure Fastcomp is properly configured
 
     - name: Setup virtual environment
       run: |
@@ -68,7 +80,7 @@ jobs:
     - name: Build only if required
       run: |
         source .venv/bin/activate
-        source ./emsdk/emsdk_env.sh  # Activate Emscripten Fastcomp environment
+        source ./emsdk_env.sh  # Activate Fastcomp environment
         
         # Enable ccache for faster builds
         export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
