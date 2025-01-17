@@ -81,68 +81,35 @@ function create_framebuffer(width, height) {
   }
 }
 
-let frameCounter = 0; // Tracks the current frame
-
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
-  // Create a view of the framebuffer without copying
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-
-  for (let y = 0; y < height; y++) {
+  for (let y=0; y < height; y++) {
     let row = js_buffer[y];
     let old_row = row.join("");
-    let hasChanged = false;
-
-    // Determine whether to skip even or odd pixels this frame
-    let startX = (y + frameCounter) % 2; // Alternates even/odd per row based on frameCounter
-
-    for (let x = startX; x < width; x += 2) {
+    for (let x=0; x < width; x++) {
       let index = (y * width + x) * 4;
       let r = framebuffer[index];
-      let g = framebuffer[index + 1];
-      let b = framebuffer[index + 2];
+      let g = framebuffer[index+1];
+      let b = framebuffer[index+2];
       let avg = (r + g + b) / 3;
+      //let avg = (x/width) * 255; // (uncomment for a gradient test)
 
-      // Map brightness to ASCII characters
-      if (avg > 200) {
-        if (row[x] !== "_") {
-          row[x] = "_";
-          hasChanged = true;
-        }
-      } else if (avg > 150) {
-        if (row[x] !== "::") {
-          row[x] = "::";
-          hasChanged = true;
-        }
-      } else if (avg > 100) {
-        if (row[x] !== "?") {
-          row[x] = "?";
-          hasChanged = true;
-        }
-      } else if (avg > 50) {
-        if (row[x] !== "//") {
-          row[x] = "//";
-          hasChanged = true;
-        }
-      } else if (avg > 25) {
-        if (row[x] !== "b") {
-          row[x] = "b";
-          hasChanged = true;
-        }
-      } else {
-        if (row[x] !== "#") {
-          row[x] = "#";
-          hasChanged = true;
-        }
-      }
+      //note - these ascii characters were all picked because they have the same width in the sans-serif font that chrome decided to use for text fields
+      if (avg > 200)
+        row[x] = "_";
+      else if (avg > 150)
+        row[x] = "::";
+      else if (avg > 100)
+        row[x] = "?";
+      else if (avg > 50)
+        row[x] = "//";
+      else if (avg > 25)
+        row[x] = "b";
+      else
+        row[x] = "#";
     }
-
-    // Update the row in the DOM only if it has changed
     let row_str = row.join("");
-    if (hasChanged && row_str !== old_row) {
-      globalThis.getField("field_" + (height - y - 1)).value = row_str;
-    }
+    if (row_str !== old_row)
+      globalThis.getField("field_"+(height-y-1)).value = row_str;
   }
-
-  // Increment the frame counter
-  frameCounter++;
 }
