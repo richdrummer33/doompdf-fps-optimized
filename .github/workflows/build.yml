@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  EMSCRIPTEN_VERSION: 3.1.29  # Desired Emscripten version
+  EMSCRIPTEN_VERSION: 3.1.29  # Desired Emscripten version for fastcomp
   PYTHON_VERSION: 3.11        # Specific Python version for consistency
 
 jobs:
@@ -27,13 +27,16 @@ jobs:
         cache: 'pip'  # Built-in pip caching
     
     - name: Set up Emscripten
-      uses: docker://trzeci/emscripten:3.1.29
-      with:
-        args: |
-          echo "Emscripten 3.1.29 set up in Docker!"
-
-    - name: Verify Emscripten Installation
-      run: emcc --version
+      run: |
+        if [ ! -d "emsdk" ]; then
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install ${{ env.EMSCRIPTEN_VERSION }}
+          ./emsdk activate ${{ env.EMSCRIPTEN_VERSION }}
+          cd ..
+        fi
+        source ./emsdk/emsdk_env.sh
+        emcc --version
     
     - name: Setup virtual environment
       run: |
