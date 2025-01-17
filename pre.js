@@ -129,23 +129,35 @@ function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   frameCount++;
 
-  const cellWidth = Math.floor(width / 3);
-  const cellHeight = Math.floor(height / 3);
+  // Center point
+  const centerX = width / 2;
+  const centerY = height / 2;
+  
+  // Calculate max distance (from center to corner) for normalization
+  const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+  // Distance at which we start slowing updates (1/3 of max distance)
+  const innerRadius = maxDist / 3;
 
   for (let y = 0; y < height; y++) {
-    // Which grid cell vertically (0,1,2)
-    const gridY = Math.floor(y / cellHeight);
-    
     let row = js_buffer[y];
     let old_row = row.join("");
     
     for (let x = 0; x < width; x++) {
-      // Which grid cell horizontally (0,1,2)
-      const gridX = Math.floor(x / cellWidth);
+      // Calculate distance from center
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
       
-      // Skip non-center cells on alternate frames
-      if (gridX !== 1 || gridY !== 1) {  // If not center cell
-        if (frameCount % 2 !== (gridX + gridY) % 2) continue;  // Skip based on grid position parity
+      // Inside inner radius - update every frame
+      if (dist <= innerRadius) {
+        // Update pixel
+      } else {
+        // Calculate update rate based on distance
+        // Map distance from innerRadius to maxDist -> 1 to 3 frames
+        const updateRate = Math.floor(1 + (dist - innerRadius) / (maxDist - innerRadius) * 2);
+        
+        // Skip if not on right frame
+        if (frameCount % updateRate !== 0) continue;
       }
 
       let index = (y * width + x) * 4;
