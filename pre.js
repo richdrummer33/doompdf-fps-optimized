@@ -125,55 +125,42 @@ function create_framebuffer(width, height) {
   commonPatterns.clear(); // Reset cache on new frame buffer creation
 }
 
+// Add a frame counter
+let frameCount = 0;
+
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   
-  // Check if any movement keys are pressed (WASD)
-  const isMoving = Object.values(pressed_keys).some(v => v > 0);
-  // Skip factor: process every Nth pixel when moving
-  const skipFactor = isMoving ? 2 : 1;  // Can be adjusted (2 = half resolution)
+  // Increment frame counter
+  frameCount++;
   
-  for (let y = 0; y < height; y += skipFactor) {
+  // Only process rows where (row number % 2) matches (frameCount % 2)
+  // This means we process even rows on even frames, odd rows on odd frames
+  for (let y = 0; y < height; y++) {
+    // Skip rows that don't match our alternating pattern
+    if ((y % 2) !== (frameCount % 2)) continue;
+    
     let row = js_buffer[y];
     let old_row = row.join("");
     
-    for (let x = 0; x < width; x += skipFactor) {
+    for (let x = 0; x < width; x++) {
       let index = (y * width + x) * 4;
       let r = framebuffer[index];
       let g = framebuffer[index+1];
       let b = framebuffer[index+2];
       let avg = (r + g + b) / 3;
       
-      // Update current pixel
       if (avg > 200) row[x] = "_";
       else if (avg > 150) row[x] = "::";
       else if (avg > 100) row[x] = "?";
       else if (avg > 50) row[x] = "//";
       else if (avg > 25) row[x] = "b";
       else row[x] = "#";
-      
-      // Copy the same character to skipped pixels
-      if (skipFactor > 1) {
-        for (let dx = 1; dx < skipFactor && (x + dx) < width; dx++) {
-          row[x + dx] = row[x];
-        }
-      }
     }
-    
-    // Copy the same row content to skipped rows
-    if (skipFactor > 1) {
-      let row_str = row.join("");
-      globalThis.getField("field_"+(height-y-1)).value = row_str;
-      
-      for (let dy = 1; dy < skipFactor && (y + dy) < height; dy++) {
-        js_buffer[y + dy] = [...row];  // Copy row content
-        globalThis.getField("field_"+(height-(y+dy)-1)).value = row_str;
-      }
-    } else {
-      let row_str = row.join("");
-      if (row_str !== old_row) {
-        globalThis.getField("field_"+(height-y-1)).value = row_str;
-      }
+
+    let new_row = row.join("");
+    if (new_row !== old_row) {
+      globalThis.getField("field_"+(height-y-1)).value = new_row;
     }
   }
 }
