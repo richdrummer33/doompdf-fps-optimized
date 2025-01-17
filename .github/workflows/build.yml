@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  EMSCRIPTEN_VERSION: 1.39.20-fastcomp  # Desired Emscripten version
-  PYTHON_VERSION: 3.11        # Specific Python version for consistency
+  EMSCRIPTEN_FASTCOMP_BRANCH: "1.38.10"  # Branch for Emscripten Fastcomp
+  PYTHON_VERSION: 3.11  # Specific Python version for consistency
 
 jobs:
   build:
@@ -25,25 +25,37 @@ jobs:
       with:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'  # Built-in pip caching
-    
-    - name: Set up Emscripten
+
+    - name: Clone and Build Fastcomp
       run: |
-        if [ ! -d "emsdk" ]; then
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install ${{ env.EMSCRIPTEN_VERSION }}
-          ./emsdk activate ${{ env.EMSCRIPTEN_VERSION }}
-          cd ..
-        fi
+        git clone --branch ${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }} https://github.com/emscripten-core/emscripten-fastcomp.git fastcomp
+        cd fastcomp
+        git clone https://github.com/emscripten-core/emscripten-fastcomp-clang.git clang
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+        cd ../..
+        export LLVM=$GITHUB_WORKSPACE/fastcomp/build/bin
+        export PATH=$LLVM:$PATH
+        echo "Fastcomp LLVM installation completed."
+
+    - name: Install Emscripten SDK
+      run: |
+        git clone https://github.com/emscripten-core/emsdk.git
+        cd emsdk
+        ./emsdk install sdk-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}-64bit
+        ./emsdk activate sdk-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}-64bit
+        cd ..
         source ./emsdk/emsdk_env.sh
-        emcc --version  # Verify installation
-    
+        emcc --version  # Verify Emscripten Fastcomp installation
+
     - name: Setup virtual environment
       run: |
         python -m venv .venv
         source .venv/bin/activate
         pip install -r requirements.txt  # Ensure all dependencies are installed
-    
+
     - name: Download DOOM WAD if not present
       run: |
         if [ ! -f "doomgeneric/doom1.wad" ]; then
@@ -52,11 +64,11 @@ jobs:
         else
           echo "doom1.wad already exists. Skipping download."
         fi
-    
+
     - name: Build only if required
       run: |
         source .venv/bin/activate
-        source ./emsdk/emsdk_env.sh  # Activate Emscripten environment
+        source ./emsdk/emsdk_env.sh  # Activate Emscripten Fastcomp environment
         
         # Enable ccache for faster builds
         export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
