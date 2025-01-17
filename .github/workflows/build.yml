@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  EMSCRIPTEN_VERSION: 3.1.29-fastcomp  # Desired Emscripten version
+  EMSCRIPTEN_VERSION: 1.39.20-fastcomp  # Desired Emscripten version
   PYTHON_VERSION: 3.11        # Specific Python version for consistency
 
 jobs:
