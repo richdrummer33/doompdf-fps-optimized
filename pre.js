@@ -1,9 +1,13 @@
+
+// ------------------------------------//
+// *** OG INPUT HANDLING ***
+// ------------------------------------//
 var Module = {};
 var lines = [];
-var js_buffer = [];
 var pressed_keys = {};
 var key_queue = [];
 
+// prints a message to the console for debugging
 function print_msg(msg) {
   lines.push(msg);
   if (lines.length > 25) 
@@ -64,52 +68,114 @@ function reset_input_box() {
 }
 app.setInterval("reset_input_box()", 1000);
 
+// Maybe savedata?
 function write_file(filename, data) {
   let stream = FS.open("/"+filename, "w+");
   FS.write(stream, data, 0, data.length, 0);
   FS.close(stream);
 }
 
-function create_framebuffer(width, height) {
-  js_buffer = [];
-  for (let y=0; y < height; y++) {
-    let row = Array(width);
-    for (let x=0; x < width; x++) {
-      row[x] = "_";
-    }
-    js_buffer.push(row);
+
+// ------------------------------------//
+// *** RICH'S DOOM SHADER OPTIMIZATIONS  ***
+// ------------------------------------//
+
+// Brightness lookup table
+const brightnessMap = [
+  { limit: 25, char: "#" },
+  { limit: 50, char: "b" },
+  { limit: 100, char: "//" },
+  { limit: 150, char: "?" },
+  { limit: 200, char: "::" },
+  { limit: Infinity, char: "_" }
+];
+
+// Cached field references
+let fieldRefs = [];
+var js_buffer = [];
+var prev_buffer = [];
+
+// Cache for common row patterns, with size limit to prevent memory bloat
+const commonPatterns = new Map();
+const MAX_CACHE_SIZE = 100; // Adjust based on testing
+
+function getAsciiChar(avg) {
+  for (let entry of brightnessMap) {
+    if (avg <= entry.limit) return entry.char;
   }
+  return "_"; // Fallback, though this should never happen due to Infinity limit
 }
 
-function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
-  let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-  for (let y=0; y < height; y++) {
-    let row = js_buffer[y];
-    let old_row = row.join("");
-    for (let x=0; x < width; x++) {
-      let index = (y * width + x) * 4;
-      let r = framebuffer[index];
-      let g = framebuffer[index+1];
-      let b = framebuffer[index+2];
-      let avg = (r + g + b) / 3;
-      //let avg = (x/width) * 255; // (uncomment for a gradient test)
+function create_framebuffer(width, height) {
+  js_buffer = [];
+  prev_buffer = [];
+  
+  // Initialize buffers
+  for (let y = 0; y < height; y++) {
+    js_buffer.push(new Array(width).fill("_"));
+    prev_buffer.push(new Array(width).fill("_"));
+  }
+  
+  // Cache field references
+  fieldRefs = [];
+  for (let y = 0; y < height; y++) {
+    fieldRefs[y] = globalThis.getField("field_" + (height-y-1));
+  }
+  
+  commonPatterns.clear(); // Reset cache on new frame buffer creation
+}
 
-      //note - these ascii characters were all picked because they have the same width in the sans-serif font that chrome decided to use for text fields
-      if (avg > 200)
-        row[x] = "_";
-      else if (avg > 150)
-        row[x] = "::";
-      else if (avg > 100)
-        row[x] = "?";
-      else if (avg > 50)
-        row[x] = "//";
-      else if (avg > 25)
-        row[x] = "b";
-      else
-        row[x] = "#";
+function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) 
+{
+  let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
+  
+  // Track cache hits for pattern frequency analysis
+  let cacheHits = 0;
+  
+  for (let y = 0; y < height; y++) {
+    let row = js_buffer[y];
+    let prev_row = prev_buffer[y];
+    let hasChanges = false;
+    
+    // Process pixels in groups of 4
+    for (let x = 0; x < width; x += 4) {
+      for (let i = 0; i < 4 && (x + i) < width; i++) {
+        let index = (y * width + x + i) * 4;
+        let avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) / 3;
+        
+        // Use lookup table instead of if-else chain
+        let newChar = getAsciiChar(avg);
+        
+        if (prev_row[x + i] !== newChar) {
+          row[x + i] = newChar;
+          prev_row[x + i] = newChar;
+          hasChanges = true;
+        }
+      }
     }
-    let row_str = row.join("");
-    if (row_str !== old_row)
-      globalThis.getField("field_"+(height-y-1)).value = row_str;
+    
+    if (hasChanges) {
+      const rowStr = row.join('');
+      
+      // Check if this pattern is already cached
+      let cachedStr = commonPatterns.get(rowStr);
+      
+      if (!cachedStr) {
+        // New pattern found
+        if (commonPatterns.size >= MAX_CACHE_SIZE) {
+          // Cache is full - remove least recently used pattern
+          const firstKey = commonPatterns.keys().next().value;
+          commonPatterns.delete(firstKey);
+        }
+        // Add new pattern to cache
+        commonPatterns.set(rowStr, rowStr);
+        cachedStr = rowStr;
+      } else {
+        cacheHits++;
+      }
+      
+      // Use cached field reference instead of looking up each time
+      fieldRefs[y].value = cachedStr;
+    }
   }
 }
