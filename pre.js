@@ -106,9 +106,6 @@ function getAsciiChar(avg) {
   return "_"; // Fallback, though this should never happen due to Infinity limit
 }
 
-let frameCount = 0;
-
-// Define region dimensions
 const REGIONS = {
   CENTER: { name: 'center', updateEvery: 1 },  // Update every frame
   MIDDLE: { name: 'middle', updateEvery: 2 },  // Update every 2nd frame
@@ -117,25 +114,12 @@ const REGIONS = {
 
 function create_framebuffer(width, height) {
   js_buffer = [];
-  prev_buffer = [];
-  
-  // Create buffers
   for (let y = 0; y < height; y++) {
-    js_buffer.push(new Array(width).fill("_"));
-    prev_buffer.push(new Array(width).fill("_"));
-  }
-  
-  // Create and cache field references with region prefixes
-  fieldRefs = {};
-  const segmentWidth = 40;
-  
-  for (let y = 0; y < height; y++) {
-    for (let segStart = 0; segStart < width; segStart += segmentWidth) {
-      const segmentKey = `${Math.floor(segStart/segmentWidth)}_${y}`;
-      const region = getRegionForPosition(segStart + segmentWidth/2, y, width, height);
-      const fieldName = `field_${region.name}_${segmentKey}`;
-      fieldRefs[fieldName] = globalThis.getField(fieldName);
+    let row = Array(width);
+    for (let x = 0; x < width; x++) {
+      row[x] = "_";
     }
+    js_buffer.push(row);
   }
 }
 
@@ -146,13 +130,11 @@ function getRegionForPosition(x, y, width, height) {
   const centerStartY = Math.floor(height * 0.3);
   const centerEndY = Math.floor(height * 0.7);
   
-  // Check if position is in center region
   if (x >= centerStartX && x < centerEndX && 
       y >= centerStartY && y < centerEndY) {
     return REGIONS.CENTER;
   }
   
-  // Check if position is in middle region (surrounding center)
   const middleStartX = Math.floor(width * 0.15);
   const middleEndX = Math.floor(width * 0.85);
   const middleStartY = Math.floor(height * 0.15);
@@ -166,40 +148,44 @@ function getRegionForPosition(x, y, width, height) {
   return REGIONS.OUTER;
 }
 
+let frameCount = 0;
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   frameCount++;
   
   const isMoving = Object.values(pressed_keys).some(v => v > 0);
-  const segmentWidth = 40;
   
   for (let y = 0; y < height; y++) {
     let row = js_buffer[y];
+    let old_row = row.join("");
+    let needsUpdate = false;
     
-    // Process pixels
     for (let x = 0; x < width; x++) {
       const region = getRegionForPosition(x, y, width, height);
-      if (isMoving && (frameCount % region.updateEvery) !== 0) continue;
+      
+      // Skip updates based on region and frame count if moving
+      if (isMoving && (frameCount % region.updateEvery !== 0)) {
+        continue;
+      }
       
       let index = (y * width + x) * 4;
-      let avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) / 3;
-      row[x] = getAsciiChar(avg);
+      let r = framebuffer[index];
+      let g = framebuffer[index+1];
+      let b = framebuffer[index+2];
+      let avg = (r + g + b) / 3;
+      
+      if (avg > 200) row[x] = "_";
+      else if (avg > 150) row[x] = "::";
+      else if (avg > 100) row[x] = "?";
+      else if (avg > 50) row[x] = "//";
+      else if (avg > 25) row[x] = "b";
+      else row[x] = "#";
     }
     
-    // Update text fields by segment
-    for (let segStart = 0; segStart < width; segStart += segmentWidth) {
-      const segEnd = Math.min(segStart + segmentWidth, width);
-      const segmentContent = row.slice(segStart, segEnd).join('');
-      const segmentKey = `${Math.floor(segStart/segmentWidth)}_${y}`;
-      const region = getRegionForPosition(segStart + segmentWidth/2, y, width, height);
-      const fieldName = `field_${region.name}_${segmentKey}`;
-      
-      if (!isMoving || (frameCount % region.updateEvery === 0)) {
-        if (fieldRefs[fieldName]) {
-          fieldRefs[fieldName].value = segmentContent;
-        }
-      }
+    let row_str = row.join("");
+    if (row_str !== old_row) {
+      globalThis.getField("field_" + (height-y-1)).value = row_str;
     }
   }
 }
