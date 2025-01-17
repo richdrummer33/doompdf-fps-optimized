@@ -1,0 +1,11 @@
+tasks:
+  - init: |
+      python -m venv .venv
+      source .venv/bin/activate
+      git clone https://github.com/emscripten-core/emsdk.git --branch 1.39.20
+      ./emsdk/emsdk install 1.39.20-fastcomp
+      ./emsdk/emsdk activate 1.39.20-fastcomp
+    command: |
+      source .venv/bin/activate
+      source ./emsdk/emsdk_env.sh
+      ./build.sh

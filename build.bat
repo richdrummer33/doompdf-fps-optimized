@@ -21,3 +21,6 @@ call build.sh
 REM Deactivate the virtual environment (optional)
 echo Deactivating virtual environment...
 deactivate
+
+REM Prevent window from closing
+pause
