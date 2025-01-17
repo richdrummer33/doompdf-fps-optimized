@@ -107,9 +107,9 @@ function getAsciiChar(avg) {
 }
 
 const REGIONS = {
-  CENTER: { name: 'center', updateEvery: 1 },  // Update every frame
-  MIDDLE: { name: 'middle', updateEvery: 2 },  // Update every 2nd frame
-  OUTER: { name: 'outer', updateEvery: 3 }     // Update every 3rd frame
+  CENTER: { name: 'center', updateEvery: 1 },
+  MIDDLE: { name: 'middle', updateEvery: 2 },
+  OUTER: { name: 'outer', updateEvery: 3 }
 };
 
 function create_framebuffer(width, height) {
@@ -123,69 +123,64 @@ function create_framebuffer(width, height) {
   }
 }
 
-function getRegionForPosition(x, y, width, height) {
-  // Define boundaries for center region
-  const centerStartX = Math.floor(width * 0.3);
-  const centerEndX = Math.floor(width * 0.7);
-  const centerStartY = Math.floor(height * 0.3);
-  const centerEndY = Math.floor(height * 0.7);
-  
-  if (x >= centerStartX && x < centerEndX && 
-      y >= centerStartY && y < centerEndY) {
-    return REGIONS.CENTER;
-  }
-  
-  const middleStartX = Math.floor(width * 0.15);
-  const middleEndX = Math.floor(width * 0.85);
-  const middleStartY = Math.floor(height * 0.15);
-  const middleEndY = Math.floor(height * 0.85);
-  
-  if (x >= middleStartX && x < middleEndX && 
-      y >= middleStartY && y < middleEndY) {
-    return REGIONS.MIDDLE;
-  }
-  
-  return REGIONS.OUTER;
-}
 
 let frameCount = 0;
+
+// Precalculate region lookup table
+const regionLookup = new Array(height);
+for(let y = 0; y < height; y++) {
+  regionLookup[y] = new Array(width);
+  for(let x = 0; x < width; x++) {
+    // Simplified region detection
+    const xThird = Math.floor(x / (width/3));
+    const yThird = Math.floor(y / (height/3));
+    // Center = 0, Middle = 1, Outer = 2
+    regionLookup[y][x] = (xThird === 1 && yThird === 1) ? 0 : 
+                         (xThird === 1 || yThird === 1) ? 1 : 2;
+  }
+}
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   frameCount++;
+
+  // Process rows based on frame count
+  const rowStart = frameCount % 3;
   
-  const isMoving = Object.values(pressed_keys).some(v => v > 0);
-  
-  for (let y = 0; y < height; y++) {
+  for(let y = rowStart; y < height; y += 3) {
     let row = js_buffer[y];
     let old_row = row.join("");
-    let needsUpdate = false;
-    
-    for (let x = 0; x < width; x++) {
-      const region = getRegionForPosition(x, y, width, height);
+    let changed = false;
+
+    // Process pixels in chunks of 3
+    for(let x = 0; x < width; x += 3) {
+      const region = regionLookup[y][x];
       
-      // Skip updates based on region and frame count if moving
-      if (isMoving && (frameCount % region.updateEvery !== 0)) {
-        continue;
+      // Process 3x3 block if needed
+      if((frameCount % (region + 1)) === 0) {
+        for(let dy = 0; dy < 3 && (y + dy) < height; dy++) {
+          for(let dx = 0; dx < 3 && (x + dx) < width; dx++) {
+            const px = x + dx;
+            const index = ((y + dy) * width + px) * 4;
+            const avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) / 3;
+            
+            if(avg > 200) row[px] = "_";
+            else if(avg > 150) row[px] = "::";
+            else if(avg > 100) row[px] = "?";
+            else if(avg > 50) row[px] = "//";
+            else if(avg > 25) row[px] = "b";
+            else row[px] = "#";
+          }
+        }
+        changed = true;
       }
-      
-      let index = (y * width + x) * 4;
-      let r = framebuffer[index];
-      let g = framebuffer[index+1];
-      let b = framebuffer[index+2];
-      let avg = (r + g + b) / 3;
-      
-      if (avg > 200) row[x] = "_";
-      else if (avg > 150) row[x] = "::";
-      else if (avg > 100) row[x] = "?";
-      else if (avg > 50) row[x] = "//";
-      else if (avg > 25) row[x] = "b";
-      else row[x] = "#";
     }
-    
-    let row_str = row.join("");
-    if (row_str !== old_row) {
-      globalThis.getField("field_" + (height-y-1)).value = row_str;
+
+    if(changed) {
+      let row_str = row.join("");
+      if(row_str !== old_row) {
+        globalThis.getField("field_" + (height-y-1)).value = row_str;
+      }
     }
   }
 }
