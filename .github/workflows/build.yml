@@ -70,7 +70,8 @@ jobs:
         export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
         export PATH="/usr/lib/ccache:$PATH"
         
-        # Use all available cores for compilation
+        # Use all available cores for compilation and enable shell environment
+        export EMCC_CFLAGS="-sENVIRONMENT=web,shell"
         emmake make -C doomgeneric -f Makefile.pdfjs -j$(nproc)
         
         # Create output directory and copy web files
