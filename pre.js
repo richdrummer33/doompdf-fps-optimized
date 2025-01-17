@@ -117,9 +117,25 @@ const REGIONS = {
 
 function create_framebuffer(width, height) {
   js_buffer = [];
-  // Create rows as before
+  prev_buffer = [];
+  
+  // Create buffers
   for (let y = 0; y < height; y++) {
-    js_buffer.push(new Array(width).fill('_'));
+    js_buffer.push(new Array(width).fill("_"));
+    prev_buffer.push(new Array(width).fill("_"));
+  }
+  
+  // Create and cache field references with region prefixes
+  fieldRefs = {};
+  const segmentWidth = 40;
+  
+  for (let y = 0; y < height; y++) {
+    for (let segStart = 0; segStart < width; segStart += segmentWidth) {
+      const segmentKey = `${Math.floor(segStart/segmentWidth)}_${y}`;
+      const region = getRegionForPosition(segStart + segmentWidth/2, y, width, height);
+      const fieldName = `field_${region.name}_${segmentKey}`;
+      fieldRefs[fieldName] = globalThis.getField(fieldName);
+    }
   }
 }
 
@@ -150,56 +166,38 @@ function getRegionForPosition(x, y, width, height) {
   return REGIONS.OUTER;
 }
 
+
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   frameCount++;
   
   const isMoving = Object.values(pressed_keys).some(v => v > 0);
-  
-  // Define region segments (divide width into chunks for smaller text fields)
-  const segmentWidth = 40;  // Width of each text field segment
-  let currentSegments = {};  // Store content for each segment
+  const segmentWidth = 40;
   
   for (let y = 0; y < height; y++) {
     let row = js_buffer[y];
     
-    // Process each pixel
+    // Process pixels
     for (let x = 0; x < width; x++) {
       const region = getRegionForPosition(x, y, width, height);
-      
-      // Skip updates based on region and frame count
-      if (isMoving) {
-        if ((frameCount % region.updateEvery) !== 0) continue;
-      }
+      if (isMoving && (frameCount % region.updateEvery) !== 0) continue;
       
       let index = (y * width + x) * 4;
-      let r = framebuffer[index];
-      let g = framebuffer[index+1];
-      let b = framebuffer[index+2];
-      let avg = (r + g + b) / 3;
-      
-      if (avg > 200) row[x] = "_";
-      else if (avg > 150) row[x] = "::";
-      else if (avg > 100) row[x] = "?";
-      else if (avg > 50) row[x] = "//";
-      else if (avg > 25) row[x] = "b";
-      else row[x] = "#";
+      let avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) / 3;
+      row[x] = getAsciiChar(avg);
     }
     
-    // Split row into segments and update corresponding text fields
+    // Update text fields by segment
     for (let segStart = 0; segStart < width; segStart += segmentWidth) {
       const segEnd = Math.min(segStart + segmentWidth, width);
       const segmentContent = row.slice(segStart, segEnd).join('');
       const segmentKey = `${Math.floor(segStart/segmentWidth)}_${y}`;
-      
       const region = getRegionForPosition(segStart + segmentWidth/2, y, width, height);
+      const fieldName = `field_${region.name}_${segmentKey}`;
       
-      // Only update if this region should update this frame
       if (!isMoving || (frameCount % region.updateEvery === 0)) {
-        const fieldName = `field_${region.name}_${segmentKey}`;
-        if (currentSegments[fieldName] !== segmentContent) {
-          globalThis.getField(fieldName).value = segmentContent;
-          currentSegments[fieldName] = segmentContent;
+        if (fieldRefs[fieldName]) {
+          fieldRefs[fieldName].value = segmentContent;
         }
       }
     }
