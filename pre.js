@@ -5,7 +5,7 @@
 var Module = {};
 var lines = [];
 var pressed_keys = {};
-var key_queue = [];
+var js_buffer = [];
 
 // prints a message to the console for debugging
 function print_msg(msg) {
@@ -80,103 +80,80 @@ function write_file(filename, data) {
 // *** RICH'S DOOM SHADER OPTIMIZATIONS  ***
 // ------------------------------------//
 
-// Brightness lookup table
-const brightnessMap = [
-  { limit: 25, char: "#" },
-  { limit: 50, char: "b" },
-  { limit: 100, char: "//" },
-  { limit: 150, char: "?" },
-  { limit: 200, char: "::" },
-  { limit: Infinity, char: "_" }
-];
 
-// Cached field references
-let fieldRefs = [];
-var js_buffer = [];
-var prev_buffer = [];
-
-// Cache for common row patterns, with size limit to prevent memory bloat
-const commonPatterns = new Map();
-const MAX_CACHE_SIZE = 100; // Adjust based on testing
-
-function getAsciiChar(avg) {
-  for (let entry of brightnessMap) {
-    if (avg <= entry.limit) return entry.char;
-  }
-  return "_"; // Fallback, though this should never happen due to Infinity limit
-}
-
-const REGIONS = {
-  CENTER: { name: 'center', updateEvery: 1 },
-  MIDDLE: { name: 'middle', updateEvery: 2 },
-  OUTER: { name: 'outer', updateEvery: 3 }
+// Pre-compute the brightness characters to avoid string allocations
+const BRIGHTNESS_CHARS = {
+  DARK: '#',
+  DIM: 'b',
+  LOW: '//',
+  MED: '?',
+  HIGH: '::',
+  BRIGHT: '_'
 };
 
+// Pre-allocate typed arrays for better memory performance
+let framebuffer;
+let currentRow;
+let prevRow;
+
+
 function create_framebuffer(width, height) {
-  js_buffer = [];
+  js_buffer = new Array(height);
   for (let y = 0; y < height; y++) {
-    let row = Array(width);
-    for (let x = 0; x < width; x++) {
-      row[x] = "_";
-    }
-    js_buffer.push(row);
+    js_buffer[y] = new Uint8Array(width).fill(BRIGHTNESS_CHARS.BRIGHT.charCodeAt(0));
   }
+  
+  // Pre-allocate buffers for row comparisons
+  currentRow = new Uint8Array(width);
+  prevRow = new Uint8Array(width);
+  
+  // Pre-allocate the framebuffer view
+  framebuffer = new Uint8Array(width * height * 4);
 }
 
 let frameCount = 0;
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
-  let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-  frameCount++;
-
-  // Center point
-  const centerX = width / 2;
-  const centerY = height / 2;
+  // Get a view of the framebuffer without copying
+  const frameView = new Uint8Array(Module.HEAPU8.buffer, framebuffer_ptr, framebuffer_len);
   
-  // Calculate max distance (from center to corner) for normalization
-  const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
-  // Distance at which we start slowing updates (1/3 of max distance)
-  const innerRadius = maxDist / 3;
-
+  // Update local framebuffer from view
+  framebuffer.set(frameView);
+  
+  // Process rows
   for (let y = 0; y < height; y++) {
-    let row = js_buffer[y];
-    let old_row = row.join("");
+    const row = js_buffer[y];
+    let hasChanged = false;
+    
+    // Direct pointer arithmetic for frame data
+    let ptr = y * width * 4;
     
     for (let x = 0; x < width; x++) {
-      // Calculate distance from center
-      const dx = x - centerX;
-      const dy = y - centerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      // Fast integer averaging (shift by 2 is divide by 4)
+      const avg = (framebuffer[ptr] + framebuffer[ptr + 1] + framebuffer[ptr + 2]) >> 2;
       
-      // Inside inner radius - update every frame
-      if (dist <= innerRadius) {
-        // Update pixel
-      } else {
-        // Calculate update rate based on distance
-        // Map distance from innerRadius to maxDist -> 1 to 3 frames
-        const updateRate = Math.floor(1 + (dist - innerRadius) / (maxDist - innerRadius) * 2);
-        
-        // Skip if not on right frame
-        if (frameCount % updateRate !== 0) continue;
+      // Use pre-computed brightness values with minimal branches
+      const char = 
+        avg > 200 ? BRIGHTNESS_CHARS.BRIGHT :
+        avg > 150 ? BRIGHTNESS_CHARS.HIGH :
+        avg > 100 ? BRIGHTNESS_CHARS.MED :
+        avg > 50 ? BRIGHTNESS_CHARS.LOW :
+        avg > 25 ? BRIGHTNESS_CHARS.DIM :
+        BRIGHTNESS_CHARS.DARK;
+      
+      // Only mark as changed if the character actually changed
+      if (row[x] !== char) {
+        row[x] = char;
+        hasChanged = true;
       }
-
-      let index = (y * width + x) * 4;
-      let r = framebuffer[index];
-      let g = framebuffer[index+1];
-      let b = framebuffer[index+2];
-      let avg = (r + g + b) / 3;
-
-      if (avg > 200) row[x] = "_";
-      else if (avg > 150) row[x] = "::";
-      else if (avg > 100) row[x] = "?";
-      else if (avg > 50) row[x] = "//";
-      else if (avg > 25) row[x] = "b";
-      else row[x] = "#";
+      
+      ptr += 4; // Move to next pixel
     }
-
-    let row_str = row.join("");
-    if (row_str !== old_row) {
-      globalThis.getField("field_" + (height-y-1)).value = row_str;
+    
+    // Only update DOM if row changed
+    if (hasChanged) {
+      const field = globalThis.getField("field_" + (height - y - 1));
+      field.value = String.fromCharCode.apply(null, row);
     }
   }
 }
