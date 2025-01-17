@@ -1,13 +1,16 @@
 name: Build PDF DOOM
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
 env:
-  EMSCRIPTEN_VERSION: 1.39.20-fastcomp  # Source repo's version
-  PYTHON_VERSION: 3.11                  # Specific Python version for consistency
+  EMSCRIPTEN_VERSION: 3.1.29-fastcomp  # Desired Emscripten version for fastcomp
+  PYTHON_VERSION: 3.11                 # Specific Python version for consistency
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,28 +26,13 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'  # Built-in pip caching
     
-    - name: Cache Emscripten
-      id: cache-emsdk
-      uses: actions/cache@v3
-      with:
-        path: |
-          emsdk
-          .emscripten_cache
-          .emscripten
-        key: ${{ runner.os }}-emscripten-${{ env.EMSCRIPTEN_VERSION }}
-    
     - name: Setup Emscripten
-      run: |
-        if [ ! -d "emsdk" ]; then
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install ${{ env.EMSCRIPTEN_VERSION }}
-          ./emsdk activate ${{ env.EMSCRIPTEN_VERSION }}
-          cd ..
-        fi
-        source ./emsdk/emsdk_env.sh
-        # Verify Emscripten installation
-        emcc --version
+      uses: numworks/setup-emscripten@v1
+      with:
+        sdk: ${{ env.EMSCRIPTEN_VERSION }}
+    
+    - name: Verify Emscripten Installation
+      run: emcc --version
     
     - name: Setup virtual environment
       run: |
@@ -64,7 +52,6 @@ jobs:
     - name: Build only if required
       run: |
         source .venv/bin/activate
-        source ./emsdk/emsdk_env.sh
         
         # Enable ccache for faster builds
         export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
