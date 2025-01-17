@@ -125,57 +125,55 @@ function create_framebuffer(width, height) {
   commonPatterns.clear(); // Reset cache on new frame buffer creation
 }
 
-function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) 
-{
+function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   
-  // Track cache hits for pattern frequency analysis
-  let cacheHits = 0;
+  // Check if any movement keys are pressed (WASD)
+  const isMoving = Object.values(pressed_keys).some(v => v > 0);
+  // Skip factor: process every Nth pixel when moving
+  const skipFactor = isMoving ? 2 : 1;  // Can be adjusted (2 = half resolution)
   
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < height; y += skipFactor) {
     let row = js_buffer[y];
-    let prev_row = prev_buffer[y];
-    let hasChanges = false;
+    let old_row = row.join("");
     
-    // Process pixels in groups of 4
-    for (let x = 0; x < width; x += 4) {
-      for (let i = 0; i < 4 && (x + i) < width; i++) {
-        let index = (y * width + x + i) * 4;
-        let avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) / 3;
-        
-        // Use lookup table instead of if-else chain
-        let newChar = getAsciiChar(avg);
-        
-        if (prev_row[x + i] !== newChar) {
-          row[x + i] = newChar;
-          prev_row[x + i] = newChar;
-          hasChanges = true;
+    for (let x = 0; x < width; x += skipFactor) {
+      let index = (y * width + x) * 4;
+      let r = framebuffer[index];
+      let g = framebuffer[index+1];
+      let b = framebuffer[index+2];
+      let avg = (r + g + b) / 3;
+      
+      // Update current pixel
+      if (avg > 200) row[x] = "_";
+      else if (avg > 150) row[x] = "::";
+      else if (avg > 100) row[x] = "?";
+      else if (avg > 50) row[x] = "//";
+      else if (avg > 25) row[x] = "b";
+      else row[x] = "#";
+      
+      // Copy the same character to skipped pixels
+      if (skipFactor > 1) {
+        for (let dx = 1; dx < skipFactor && (x + dx) < width; dx++) {
+          row[x + dx] = row[x];
         }
       }
     }
     
-    if (hasChanges) {
-      const rowStr = row.join('');
+    // Copy the same row content to skipped rows
+    if (skipFactor > 1) {
+      let row_str = row.join("");
+      globalThis.getField("field_"+(height-y-1)).value = row_str;
       
-      // Check if this pattern is already cached
-      let cachedStr = commonPatterns.get(rowStr);
-      
-      if (!cachedStr) {
-        // New pattern found
-        if (commonPatterns.size >= MAX_CACHE_SIZE) {
-          // Cache is full - remove least recently used pattern
-          const firstKey = commonPatterns.keys().next().value;
-          commonPatterns.delete(firstKey);
-        }
-        // Add new pattern to cache
-        commonPatterns.set(rowStr, rowStr);
-        cachedStr = rowStr;
-      } else {
-        cacheHits++;
+      for (let dy = 1; dy < skipFactor && (y + dy) < height; dy++) {
+        js_buffer[y + dy] = [...row];  // Copy row content
+        globalThis.getField("field_"+(height-(y+dy)-1)).value = row_str;
       }
-      
-      // Use cached field reference instead of looking up each time
-      fieldRefs[y].value = cachedStr;
+    } else {
+      let row_str = row.join("");
+      if (row_str !== old_row) {
+        globalThis.getField("field_"+(height-y-1)).value = row_str;
+      }
     }
   }
 }
