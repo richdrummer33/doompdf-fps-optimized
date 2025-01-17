@@ -123,64 +123,48 @@ function create_framebuffer(width, height) {
   }
 }
 
-
 let frameCount = 0;
-
-// Precalculate region lookup table
-const regionLookup = new Array(height);
-for(let y = 0; y < height; y++) {
-  regionLookup[y] = new Array(width);
-  for(let x = 0; x < width; x++) {
-    // Simplified region detection
-    const xThird = Math.floor(x / (width/3));
-    const yThird = Math.floor(y / (height/3));
-    // Center = 0, Middle = 1, Outer = 2
-    regionLookup[y][x] = (xThird === 1 && yThird === 1) ? 0 : 
-                         (xThird === 1 || yThird === 1) ? 1 : 2;
-  }
-}
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   frameCount++;
 
-  // Process rows based on frame count
-  const rowStart = frameCount % 3;
-  
-  for(let y = rowStart; y < height; y += 3) {
+  const cellWidth = Math.floor(width / 3);
+  const cellHeight = Math.floor(height / 3);
+
+  for (let y = 0; y < height; y++) {
+    // Which grid cell vertically (0,1,2)
+    const gridY = Math.floor(y / cellHeight);
+    
     let row = js_buffer[y];
     let old_row = row.join("");
-    let changed = false;
-
-    // Process pixels in chunks of 3
-    for(let x = 0; x < width; x += 3) {
-      const region = regionLookup[y][x];
+    
+    for (let x = 0; x < width; x++) {
+      // Which grid cell horizontally (0,1,2)
+      const gridX = Math.floor(x / cellWidth);
       
-      // Process 3x3 block if needed
-      if((frameCount % (region + 1)) === 0) {
-        for(let dy = 0; dy < 3 && (y + dy) < height; dy++) {
-          for(let dx = 0; dx < 3 && (x + dx) < width; dx++) {
-            const px = x + dx;
-            const index = ((y + dy) * width + px) * 4;
-            const avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) / 3;
-            
-            if(avg > 200) row[px] = "_";
-            else if(avg > 150) row[px] = "::";
-            else if(avg > 100) row[px] = "?";
-            else if(avg > 50) row[px] = "//";
-            else if(avg > 25) row[px] = "b";
-            else row[px] = "#";
-          }
-        }
-        changed = true;
+      // Skip non-center cells on alternate frames
+      if (gridX !== 1 || gridY !== 1) {  // If not center cell
+        if (frameCount % 2 !== (gridX + gridY) % 2) continue;  // Skip based on grid position parity
       }
+
+      let index = (y * width + x) * 4;
+      let r = framebuffer[index];
+      let g = framebuffer[index+1];
+      let b = framebuffer[index+2];
+      let avg = (r + g + b) / 3;
+
+      if (avg > 200) row[x] = "_";
+      else if (avg > 150) row[x] = "::";
+      else if (avg > 100) row[x] = "?";
+      else if (avg > 50) row[x] = "//";
+      else if (avg > 25) row[x] = "b";
+      else row[x] = "#";
     }
 
-    if(changed) {
-      let row_str = row.join("");
-      if(row_str !== old_row) {
-        globalThis.getField("field_" + (height-y-1)).value = row_str;
-      }
+    let row_str = row.join("");
+    if (row_str !== old_row) {
+      globalThis.getField("field_" + (height-y-1)).value = row_str;
     }
   }
 }
