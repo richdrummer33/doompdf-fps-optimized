@@ -6,6 +6,9 @@ Play it here: [doom.pdf](https://doompdf.pages.dev/doom.pdf)
 
 https://github.com/user-attachments/assets/0b39de6d-a53a-4494-8eba-3d16e7431e3a
 
+> [!IMPORTANT]
+> Any crypto things related to me or this project are fake. See https://bsky.app/profile/ading.dev/post/3lfyhqifjls2p
+
 ## Javascript in a PDF
 
 You might expect PDF files to only be comprised of static documents, but surprisingly, the PDF file format supports Javascript with its own separate standard library. Modern browsers (Chromium, Firefox) implement this as part of their PDF engines. However, the APIs that are available in the browser are much more limited. 
