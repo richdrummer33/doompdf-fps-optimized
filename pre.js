@@ -118,22 +118,3 @@ function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
     previousFrame = newFrame;
   }
 }
-
-// Optional: Performance monitoring
-let lastFrameTime = performance.now();
-let frameTimeLog = [];
-
-function logPerformance() {
-  const now = performance.now();
-  const frameTime = now - lastFrameTime;
-  frameTimeLog.push(frameTime);
-  
-  if (frameTimeLog.length > 60) { // Keep last 60 frames
-    frameTimeLog.shift();
-    const avgTime = frameTimeLog.reduce((a, b) => a + b) / frameTimeLog.length;
-    print_msg(`Avg frame time: ${avgTime.toFixed(1)}ms (${(1000/avgTime).toFixed(1)} FPS)`);
-    frameTimeLog = [];
-  }
-  
-  lastFrameTime = now;
-}
