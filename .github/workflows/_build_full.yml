@@ -96,8 +96,8 @@ jobs:
 
       - name: Download DOOM WAD
         run: |
-          if [ ! -f "doomgeneric/doom.wad" ]; then
-            wget -O doomgeneric/doom.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom.wad
+          if [ ! -f "doomgeneric/doom1.wad" ]; then
+            wget -O doomgeneric/doom1.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad
           fi
         continue-on-error: true
 
@@ -108,13 +108,13 @@ jobs:
           export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
           export PATH="/usr/lib/ccache:$PATH"
           if [[ ! -f "out/compiled.js" || \
-                "out/compiled.js" -ot "doomgeneric/doom.wad" || \
+                "out/compiled.js" -ot "doomgeneric/doom1.wad" || \
                 "out/compiled.js" -ot "pre.js" || \
                 "out/compiled.js" -ot "doomgeneric/doomgeneric.js" ]]; then
             emmake make -C doomgeneric -f Makefile.pdfjs -j$(nproc)
             mkdir -p out
             cp web/* out/
-            python3 embed_file.py file_template.js doomgeneric/doom.wad out/data.js
+            python3 embed_file.py file_template.js doomgeneric/doom1.wad out/data.js
             cat pre.js out/data.js doomgeneric/doomgeneric.js > out/compiled.js
             cat pre.js file_template.js doomgeneric/doomgeneric.js > out/compiled_nowad.js
             python3 generate.py out/compiled.js out/doom.pdf
