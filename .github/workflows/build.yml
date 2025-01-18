@@ -42,16 +42,6 @@ jobs:
         pip install -r requirements.txt
       continue-on-error: true
 
-    - name: Cache Fastcomp
-      uses: actions/cache@v3
-      id: fastcomp-cache
-      with:
-        path: fastcomp/build
-        key: fastcomp-build-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}
-        restore-keys: |
-          fastcomp-build-
-      continue-on-error: true
-
     - name: Build Fastcomp (if not cached)
       if: steps.fastcomp-cache.outputs.cache-hit != 'true'
       run: |
