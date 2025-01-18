@@ -1,4 +1,4 @@
-name: Build PDF DOOM
+name: Build PDF DOOM (in existing cached env)
 
 on:
   push:
@@ -13,93 +13,43 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04 # ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Check out code
       uses: actions/checkout@v4
       with:
         fetch-depth: 1
-      continue-on-error: true
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ env.PYTHON_VERSION }}
-      continue-on-error: true
 
-    - name: Cache Python Dependencies
+    - name: Restore Python Dependencies Cache
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
         key: pip-cache-${{ hashFiles('requirements.txt') }}
-      continue-on-error: true
-    
+
     - name: Install Python Dependencies
       run: |
         python -m venv .venv
         source .venv/bin/activate
         pip install -r requirements.txt
-      continue-on-error: true
 
-    - name: Check Fastcomp Cache
-      id: fastcomp-cache    # Add this id
+    - name: Restore Fastcomp Cache
+      id: fastcomp-cache
       uses: actions/cache@v3
       with:
         path: fastcomp/build
         key: fastcomp-build-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}
 
-    - name: Build Fastcomp (if not cached)
-      if: steps.fastcomp-cache.outputs.cache-hit != 'true'
-      run: |
-        git clone --branch ${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }} https://github.com/emscripten-core/emscripten-fastcomp.git fastcomp
-        cd fastcomp
-        git clone https://github.com/emscripten-core/emscripten-fastcomp-clang.git clang
-        mkdir build
-        cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release
-        make -j$(nproc)
-        cd ../..
-      continue-on-error: true
-     
-    #- name: Debug Fastcomp Build Directory
-    #  run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
-    #  continue-on-error: true
-
-    - name: Setup Emscripten
-      run: |
-        # Clone main emscripten repo
-        git clone --branch ${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }} https://github.com/emscripten-core/emscripten.git
-        
-        # Set up environment variables
-        export LLVM=${{ github.workspace }}/fastcomp/build/bin
-        export EMSCRIPTEN_ROOT=${{ github.workspace }}/emscripten
-        export EMSCRIPTEN=$EMSCRIPTEN_ROOT
-        export PATH=$LLVM:$EMSCRIPTEN:$PATH
-    
-        # Create environment script
-        echo "export LLVM=${{ github.workspace }}/fastcomp/build/bin" > emsdk_env.sh
-        echo "export EMSCRIPTEN_ROOT=${{ github.workspace }}/emscripten" >> emsdk_env.sh
-        echo "export EMSCRIPTEN=\$EMSCRIPTEN_ROOT" >> emsdk_env.sh
-        echo "export PATH=\$LLVM:\$EMSCRIPTEN:\$PATH" >> emsdk_env.sh
-    
-        # Initialize emscripten
-        cd emscripten
-        echo "LLVM_ROOT = '$LLVM'" > .emscripten
-        echo "EMSCRIPTEN_ROOT = '$EMSCRIPTEN_ROOT'" >> .emscripten
-        cd ..
-      continue-on-error: true
-
-    - name: Locate emcc
-      run: find fastcomp -name emcc
-      continue-on-error: true
-
     - name: Download DOOM WAD
       run: |
-        if [ ! -f "doomgeneric/doom1.wad" ]; then
-          wget -O doomgeneric/doom1.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad
+        if [ ! -f "doomgeneric/doom.wad" ]; then
+          wget -O doomgeneric/doom.wad https://distro.ibiblio.org/slitaz/sources/packages/d/doom.wad
         fi
-      continue-on-error: true
 
     - name: Build Project
       run: |
@@ -108,13 +58,13 @@ jobs:
         export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
         export PATH="/usr/lib/ccache:$PATH"
         if [[ ! -f "out/compiled.js" || \
-              "out/compiled.js" -ot "doomgeneric/doom1.wad" || \
+              "out/compiled.js" -ot "doomgeneric/doom.wad" || \
               "out/compiled.js" -ot "pre.js" || \
               "out/compiled.js" -ot "doomgeneric/doomgeneric.js" ]]; then
           emmake make -C doomgeneric -f Makefile.pdfjs -j$(nproc)
           mkdir -p out
           cp web/* out/
-          python3 embed_file.py file_template.js doomgeneric/doom1.wad out/data.js
+          python3 embed_file.py file_template.js doomgeneric/doom.wad out/data.js
           cat pre.js out/data.js doomgeneric/doomgeneric.js > out/compiled.js
           cat pre.js file_template.js doomgeneric/doomgeneric.js > out/compiled_nowad.js
           python3 generate.py out/compiled.js out/doom.pdf
@@ -122,7 +72,6 @@ jobs:
         else
           echo "No changes detected. Skipping build."
         fi
-      continue-on-error: true
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v3
@@ -132,8 +81,6 @@ jobs:
           out/doom.pdf
           out/doom_nowad.pdf
         retention-days: 7
-      continue-on-error: true
 
     - name: Check Output Sizes
       run: ls -lh out/*.pdf
-      continue-on-error: true
