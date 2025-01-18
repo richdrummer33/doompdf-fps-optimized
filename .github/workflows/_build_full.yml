@@ -90,6 +90,28 @@ jobs:
           cd ..
         continue-on-error: true
 
+      - name: Configure Emscripten Environment
+        run: |
+          # Create environment script
+          echo "export LLVM=${{ github.workspace }}/fastcomp/build/bin" > emsdk_env.sh
+          echo "export EMSCRIPTEN_ROOT=${{ github.workspace }}/emscripten" >> emsdk_env.sh
+          echo "export EMSCRIPTEN=\$EMSCRIPTEN_ROOT" >> emsdk_env.sh
+          echo "export PATH=\$LLVM:\$EMSCRIPTEN:\$PATH" >> emsdk_env.sh
+          
+          # Create .emscripten config file directly
+          echo "LLVM_ROOT = '${{ github.workspace }}/fastcomp/build/bin'" > ~/.emscripten
+          echo "EMSCRIPTEN_ROOT = '${{ github.workspace }}/emscripten'" >> ~/.emscripten
+          echo "NODE_JS = '/usr/local/bin/node'" >> ~/.emscripten
+          echo "SPIDERMONKEY_ENGINE = ''" >> ~/.emscripten
+          echo "V8_ENGINE = ''" >> ~/.emscripten
+          echo "TEMP_DIR = '/tmp'" >> ~/.emscripten
+          echo "COMPILER_ENGINE = NODE_JS" >> ~/.emscripten
+          echo "JS_ENGINES = [NODE_JS]" >> ~/.emscripten
+      
+          # Test emcc to ensure it's properly initialized
+          source ./emsdk_env.sh
+          emmake --version || true
+        
       - name: Locate emcc
         run: find fastcomp -name emcc
         continue-on-error: true
