@@ -7,7 +7,7 @@ Play it here: [doom.pdf](https://doompdf.pages.dev/doom.pdf)
 https://github.com/user-attachments/assets/0b39de6d-a53a-4494-8eba-3d16e7431e3a
 
 > [!IMPORTANT]
-> Any crypto things related to me or this project are fake. See https://bsky.app/profile/ading.dev/post/3lfyhqifjls2p
+> Any crypto things claiming to be related to me or this project are fake. See https://bsky.app/profile/ading.dev/post/3lfyhqifjls2p
 
 ## Javascript in a PDF
 
