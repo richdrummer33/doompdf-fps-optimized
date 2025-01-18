@@ -12,6 +12,10 @@ function print_msg(msg) {
   lines.push(msg);
   if (lines.length > 25) 
     lines.shift();
+
+  // Skip if not on right frame
+  if (frameCount % 10 !== 0) 
+    return;
   
   for (var i = 0; i < lines.length; i++) {
     var row = lines[i];
@@ -106,50 +110,66 @@ function getAsciiChar(avg) {
   return "_"; // Fallback, though this should never happen due to Infinity limit
 }
 
+const REGIONS = {
+  CENTER: { name: 'center', updateEvery: 1 },
+  MIDDLE: { name: 'middle', updateEvery: 2 },
+  OUTER: { name: 'outer', updateEvery: 3 }
+};
+
 function create_framebuffer(width, height) {
   js_buffer = [];
-  prev_buffer = [];
-  
-  // Initialize buffers
   for (let y = 0; y < height; y++) {
-    js_buffer.push(new Array(width).fill("_"));
-    prev_buffer.push(new Array(width).fill("_"));
+    let row = Array(width);
+    for (let x = 0; x < width; x++) {
+      row[x] = "_";
+    }
+    js_buffer.push(row);
   }
-  
-  // Cache field references
-  fieldRefs = [];
-  for (let y = 0; y < height; y++) {
-    fieldRefs[y] = globalThis.getField("field_" + (height-y-1));
-  }
-  
-  commonPatterns.clear(); // Reset cache on new frame buffer creation
 }
 
-// Add a frame counter
 let frameCount = 0;
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
   let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-  
-  // Increment frame counter
   frameCount++;
+
+  // Center point
+  const centerX = width / 2;
+  const centerY = height / 2;
   
-  // Only process rows where (row number % 2) matches (frameCount % 2)
-  // This means we process even rows on even frames, odd rows on odd frames
+  // Calculate max distance (from center to corner) for normalization
+  const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+  // Distance at which we start slowing updates (1/3 of max distance)
+  const innerRadius = maxDist / 3;
+
   for (let y = 0; y < height; y++) {
-    // Skip rows that don't match our alternating pattern
-    if ((y % 2) !== (frameCount % 2)) continue;
-    
     let row = js_buffer[y];
     let old_row = row.join("");
     
     for (let x = 0; x < width; x++) {
+      // Calculate distance from center
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      // Inside inner radius - update every frame
+      if (dist <= innerRadius) {
+        // Update pixel
+      } else {
+        // Calculate update rate based on distance
+        // Map distance from innerRadius to maxDist -> 1 to 3 frames
+        const updateRate = Math.floor(1 + (dist - innerRadius) / (maxDist - innerRadius) * 2);
+        
+        // Skip if not on right frame
+        if (frameCount % updateRate !== 0) continue;
+      }
+
       let index = (y * width + x) * 4;
       let r = framebuffer[index];
       let g = framebuffer[index+1];
       let b = framebuffer[index+2];
       let avg = (r + g + b) / 3;
-      
+
       if (avg > 200) row[x] = "_";
       else if (avg > 150) row[x] = "::";
       else if (avg > 100) row[x] = "?";
@@ -158,9 +178,9 @@ function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
       else row[x] = "#";
     }
 
-    let new_row = row.join("");
-    if (new_row !== old_row) {
-      globalThis.getField("field_"+(height-y-1)).value = new_row;
+    let row_str = row.join("");
+    if (row_str !== old_row) {
+      globalThis.getField("field_" + (height-y-1)).value = row_str;
     }
   }
 }
