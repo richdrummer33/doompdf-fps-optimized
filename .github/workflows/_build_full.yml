@@ -60,7 +60,6 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release
           make -j$(nproc)
           cd ../..
-        continue-on-error: true
 
       #- name: Debug Fastcomp Build Directory
       #  run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
@@ -88,7 +87,6 @@ jobs:
           echo "LLVM_ROOT = '$LLVM'" > .emscripten
           echo "EMSCRIPTEN_ROOT = '$EMSCRIPTEN_ROOT'" >> .emscripten
           cd ..
-        continue-on-error: true
 
       - name: Configure Emscripten Environment
         run: |
@@ -144,7 +142,6 @@ jobs:
           else
             echo "No changes detected. Skipping build."
           fi
-        continue-on-error: true
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
