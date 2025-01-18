@@ -55,30 +55,32 @@ jobs:
         cd ../..
       continue-on-error: true
      
-    - name: Debug Fastcomp Build Directory
-      run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
-      continue-on-error: true
-      
-    - name: Locate emcc
-      run: find fastcomp -name emcc
-      continue-on-error: true
+    #- name: Debug Fastcomp Build Directory
+    #  run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
+    #  continue-on-error: true
 
-    - name: Configure Fastcomp Environment
+    - name: Setup Emscripten
       run: |
+        # Clone main emscripten repo
+        git clone --branch ${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }} https://github.com/emscripten-core/emscripten.git
+        
+        # Set up environment variables
         export LLVM=${{ github.workspace }}/fastcomp/build/bin
-        export EMSCRIPTEN_ROOT=${{ github.workspace }}/fastcomp
+        export EMSCRIPTEN_ROOT=${{ github.workspace }}/emscripten
         export EMSCRIPTEN=$EMSCRIPTEN_ROOT
         export PATH=$LLVM:$EMSCRIPTEN:$PATH
-
-        # Create an environment script for reuse
+    
+        # Create environment script
         echo "export LLVM=${{ github.workspace }}/fastcomp/build/bin" > emsdk_env.sh
-        echo "export EMSCRIPTEN_ROOT=${{ github.workspace }}/fastcomp" >> emsdk_env.sh
-        echo "export PATH=\$LLVM:\$PATH" >> emsdk_env.sh
-
-        # Verify the configuration
-        source ./emsdk_env.sh
-        which emcc
-        emcc --version
+        echo "export EMSCRIPTEN_ROOT=${{ github.workspace }}/emscripten" >> emsdk_env.sh
+        echo "export EMSCRIPTEN=\$EMSCRIPTEN_ROOT" >> emsdk_env.sh
+        echo "export PATH=\$LLVM:\$EMSCRIPTEN:\$PATH" >> emsdk_env.sh
+    
+        # Initialize emscripten
+        cd emscripten
+        echo "LLVM_ROOT = '$LLVM'" > .emscripten
+        echo "EMSCRIPTEN_ROOT = '$EMSCRIPTEN_ROOT'" >> .emscripten
+        cd ..
       continue-on-error: true
 
     - name: Save Fastcomp Cache
@@ -86,6 +88,10 @@ jobs:
       with:
         path: fastcomp/build
         key: fastcomp-build-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}
+      
+    - name: Locate emcc
+      run: find fastcomp -name emcc
+      continue-on-error: true
 
     - name: Download DOOM WAD
       run: |
