@@ -130,57 +130,56 @@ function create_framebuffer(width, height) {
 let frameCount = 0;
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
-  let framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
-  frameCount++;
-
-  // Center point
-  const centerX = width / 2;
-  const centerY = height / 2;
+  const framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   
-  // Calculate max distance (from center to corner) for normalization
-  const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
-  // Distance at which we start slowing updates (1/3 of max distance)
-  const innerRadius = maxDist / 3;
-
-  for (let y = 0; y < height; y++) {
-    let row = js_buffer[y];
-    let old_row = row.join("");
+  // Increment frame counter
+  frameCount++;
+  
+  // Reduce resolution - only process every other pixel in both dimensions
+  const skipFactor = 2;
+  
+  // Pre-calculate thresholds and characters for better performance
+  const thresholds = [200, 150, 100, 50, 25];
+  const chars = ["_", "::", "?", "//", "b", "#"];
+  
+  // Process fewer rows with larger stride
+  for (let y = frameCount % skipFactor; y < height; y += skipFactor) {
+    const row = js_buffer[y];
+    const oldRow = row.join("");
+    let changed = false;
     
-    for (let x = 0; x < width; x++) {
-      // Calculate distance from center
-      const dx = x - centerX;
-      const dy = y - centerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+    // Process fewer pixels per row
+    for (let x = 0; x < width; x += skipFactor) {
+      const index = (y * width + x) * 4;
       
-      // Inside inner radius - update every frame
-      if (dist <= innerRadius) {
-        // Update pixel
-      } else {
-        // Calculate update rate based on distance
-        // Map distance from innerRadius to maxDist -> 1 to 3 frames
-        const updateRate = Math.floor(1 + (dist - innerRadius) / (maxDist - innerRadius) * 2);
-        
-        // Skip if not on right frame
-        if (frameCount % updateRate !== 0) continue;
+      // Faster average calculation - bit shifting for division
+      const avg = (framebuffer[index] + framebuffer[index+1] + framebuffer[index+2]) >> 2;
+      
+      // Binary search through thresholds
+      let charIndex = 5;
+      for (let i = 0; i < thresholds.length; i++) {
+        if (avg > thresholds[i]) {
+          charIndex = i;
+          break;
+        }
       }
-
-      let index = (y * width + x) * 4;
-      let r = framebuffer[index];
-      let g = framebuffer[index+1];
-      let b = framebuffer[index+2];
-      let avg = (r + g + b) / 3;
-
-      if (avg > 200) row[x] = "_";
-      else if (avg > 150) row[x] = "::";
-      else if (avg > 100) row[x] = "?";
-      else if (avg > 50) row[x] = "//";
-      else if (avg > 25) row[x] = "b";
-      else row[x] = "#";
+      
+      // Update multiple pixels at once
+      if (row[x] !== chars[charIndex]) {
+        changed = true;
+        // Fill in skipped pixels with the same value
+        for (let fx = x; fx < Math.min(x + skipFactor, width); fx++) {
+          row[fx] = chars[charIndex];
+        }
+      }
     }
-
-    let row_str = row.join("");
-    if (row_str !== old_row) {
-      globalThis.getField("field_" + (height-y-1)).value = row_str;
+    
+    // Only update DOM if row changed
+    if (changed) {
+      const newRow = row.join("");
+      if (newRow !== oldRow) {
+        globalThis.getField("field_"+(height-y-1)).value = newRow;
+      }
     }
   }
 }
