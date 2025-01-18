@@ -45,21 +45,27 @@ jobs:
         cmake .. -DCMAKE_BUILD_TYPE=Release
         make -j$(nproc)
         cd ../..
+    
+    - name: Debug Fastcomp Build Directory
+      run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
 
     - name: Configure Fastcomp Environment
       run: |
         # Set paths for Fastcomp LLVM
         export LLVM=${{ github.workspace }}/fastcomp/build/bin
-        export PATH=$LLVM:$PATH
-        export EMSCRIPTEN=$LLVM/..
+        export EMSCRIPTEN_ROOT=${{ github.workspace }}/fastcomp
+        export EMSCRIPTEN=$EMSCRIPTEN_ROOT
+        export PATH=$LLVM:$EMSCRIPTEN:$PATH
         
-        # Create a simple environment script
+        # Create an environment script for reuse
         echo "export LLVM=${{ github.workspace }}/fastcomp/build/bin" > emsdk_env.sh
-        echo "export PATH=\$LLVM:\$PATH" >> emsdk_env.sh
-        echo "export EMSCRIPTEN=\$LLVM/.." >> emsdk_env.sh
+        echo "export EMSCRIPTEN_ROOT=${{ github.workspace }}/fastcomp" >> emsdk_env.sh
+        echo "export EMSCRIPTEN=\$EMSCRIPTEN_ROOT" >> emsdk_env.sh
+        echo "export PATH=\$LLVM:\$EMSCRIPTEN:\$PATH" >> emsdk_env.sh
 
         # Verify the configuration
         source ./emsdk_env.sh
+        which emcc  # Verify if emcc is in PATH
         emcc --version  # Ensure Fastcomp is properly configured
 
     - name: Setup virtual environment
