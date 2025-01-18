@@ -1,0 +1,42 @@
+name: Build PDF DOOM
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache emsdk
+        uses: actions/cache@v3
+        with:
+          path: emsdk
+          key: emsdk-1.39.20-fastcomp
+
+      - name: Build Project
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: pdf-doom-${{ github.sha }}
+          path: out
+          retention-days: 7
