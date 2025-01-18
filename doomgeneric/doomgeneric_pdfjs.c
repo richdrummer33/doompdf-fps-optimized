@@ -60,141 +60,142 @@ void DG_Init()
     window.rowCache = new Array($0).fill(""); // Double quotes here
   },
          DOOMGENERIC_RESY);
-  // < < < RB Edits < < <
+}
+// < < < RB Edits < < <
 
-  int DG_GetKey(int *pressed, unsigned char *doomKey)
-  {
-    int key_data = EM_ASM_INT({
-      if (key_queue.length == = 0)
-        return 0;
-      let key_data = key_queue.shift();
-      let key = key_data[0];
-      let pressed = key_data[1];
-      return (pressed << 8) | key;
-    });
-
-    if (key_data == 0)
+int DG_GetKey(int *pressed, unsigned char *doomKey)
+{
+  int key_data = EM_ASM_INT({
+    if (key_queue.length == = 0)
       return 0;
+    let key_data = key_queue.shift();
+    let key = key_data[0];
+    let pressed = key_data[1];
+    return (pressed << 8) | key;
+  });
 
-    *pressed = key_data >> 8;
-    *doomKey = key_data & 0xFF;
-    return 1;
-  }
+  if (key_data == 0)
+    return 0;
 
-  void DG_SetWindowTitle(const char *title) {}
+  *pressed = key_data >> 8;
+  *doomKey = key_data & 0xFF;
+  return 1;
+}
 
-  int key_to_doomkey(int key)
+void DG_SetWindowTitle(const char *title) {}
+
+int key_to_doomkey(int key)
+{
+  if (key == 97) // a
+    return KEY_LEFTARROW;
+  if (key == 100) // d
+    return KEY_RIGHTARROW;
+  if (key == 119) // w
+    return KEY_UPARROW;
+  if (key == 115) // s
+    return KEY_DOWNARROW;
+  if (key == 113) // q
+    return KEY_ESCAPE;
+  if (key == 122) // z
+    return KEY_ENTER;
+  if (key == 101) // e
+    return KEY_USE;
+  if (key == 32) //<space>
+    return KEY_FIRE;
+  if (key == 109) //,
+    return KEY_TAB;
+  if (key == 95) //_
+    return KEY_RSHIFT;
+  return tolower(key);
+}
+
+// Move to a separate debug function
+void DG_DebugInfo()
+{
+  static int last_frame_time = 0;
+  int current_time = get_time();
+  if (frame_count % 60 == 0)
   {
-    if (key == 97) // a
-      return KEY_LEFTARROW;
-    if (key == 100) // d
-      return KEY_RIGHTARROW;
-    if (key == 119) // w
-      return KEY_UPARROW;
-    if (key == 115) // s
-      return KEY_DOWNARROW;
-    if (key == 113) // q
-      return KEY_ESCAPE;
-    if (key == 122) // z
-      return KEY_ENTER;
-    if (key == 101) // e
-      return KEY_USE;
-    if (key == 32) //<space>
-      return KEY_FIRE;
-    if (key == 109) //,
-      return KEY_TAB;
-    if (key == 95) //_
-      return KEY_RSHIFT;
-    return tolower(key);
+    int frame_time = current_time - last_frame_time;
+    EM_ASM({ console.log(`Frame ${$0} : avg time ${$1} ms`); }, frame_count, frame_time / 60);
   }
+  last_frame_time = current_time;
+}
 
-  // Move to a separate debug function
-  void DG_DebugInfo()
-  {
-    static int last_frame_time = 0;
-    int current_time = get_time();
-    if (frame_count % 60 == 0)
+// > > > RB Edits > > >
+void DG_DrawFrame()
+{
+  // Handle key events first
+  EM_ASM({
+    for (let key of Object.keys(pressed_keys))
     {
-      int frame_time = current_time - last_frame_time;
-      EM_ASM({ console.log(`Frame ${$0} : avg time ${$1} ms`); }, frame_count, frame_time / 60);
+      key_queue.push([ key, !!pressed_keys[key] ]);
+      if (pressed_keys[key] == = 0)
+        delete pressed_keys[key];
+      if (pressed_keys[key] == = 2)
+        pressed_keys[key] = 0;
     }
-    last_frame_time = current_time;
-  }
+  });
 
-  // > > > RB Edits > > >
-  void DG_DrawFrame()
+  for (int y = 0; y < DOOMGENERIC_RESY; y++)
   {
-    // Handle key events first
-    EM_ASM({
-      for (let key of Object.keys(pressed_keys))
-      {
-        key_queue.push([ key, !!pressed_keys[key] ]);
-        if (pressed_keys[key] == = 0)
-          delete pressed_keys[key];
-        if (pressed_keys[key] == = 2)
-          pressed_keys[key] = 0;
-      }
-    });
+    uint32_t *row_start = &DG_ScreenBuffer[y * DOOMGENERIC_RESX];
+    char *ascii_row = ascii_rows[y];
 
-    for (int y = 0; y < DOOMGENERIC_RESY; y++)
+    for (int x = 0; x < DOOMGENERIC_RESX; x++)
     {
-      uint32_t *row_start = &DG_ScreenBuffer[y * DOOMGENERIC_RESX];
-      char *ascii_row = ascii_rows[y];
+      uint32_t pixel = row_start[x];
+      // Add RGB and lookup directly - no second division needed
+      unsigned char bright = ((pixel >> 16) & 0xFF) +
+                             ((pixel >> 8) & 0xFF) +
+                             (pixel & 0xFF);
+      ascii_row[x] = ASCII_CHARS[brightness_lookup[bright]];
+    }
 
-      for (int x = 0; x < DOOMGENERIC_RESX; x++)
-      {
-        uint32_t pixel = row_start[x];
-        // Add RGB and lookup directly - no second division needed
-        unsigned char bright = ((pixel >> 16) & 0xFF) +
-                               ((pixel >> 8) & 0xFF) +
-                               (pixel & 0xFF);
-        ascii_row[x] = ASCII_CHARS[brightness_lookup[bright]];
-      }
-
-      // Direct update with length instead of null terminator
-      EM_ASM({
+    // Direct update with length instead of null terminator
+    EM_ASM({
             const rowStr = UTF8ToString($0, $1);
             const field = globalThis.getField("field_" + ($3-$2-1));
             if (field.value !== rowStr) {
                 field.value = rowStr;
             } }, ascii_row, DOOMGENERIC_RESX, y, DOOMGENERIC_RESY);
-    }
-
-    // Tick frame timer and print debug info
-    DG_DebugInfo();
   }
-  // < < < RB Edits < < <
 
-  void doomjs_tick()
+  // Tick frame timer and print debug info
+  DG_DebugInfo();
+}
+// < < < RB Edits < < <
+
+void doomjs_tick()
+{
+  int start = get_time();
+  doomgeneric_Tick();
+  int end = get_time();
+  frame_count++;
+
+  if (frame_count % 30 == 0)
   {
-    int start = get_time();
-    doomgeneric_Tick();
-    int end = get_time();
-    frame_count++;
+    int fps = 1000 / (end - start);
+    printf("frame time: %i ms (%i fps)\n", end - start, fps);
+  }
+}
 
-    if (frame_count % 30 == 0)
+int main(int argc, char **argv)
+{
+  EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+
+  EM_ASM({
+    write_file(file_name, file_data);
+    if (file2_data)
     {
-      int fps = 1000 / (end - start);
-      printf("frame time: %i ms (%i fps)\n", end - start, fps);
+      write_file(file2_name, file2_data);
     }
-  }
+  });
 
-  int main(int argc, char **argv)
-  {
-    EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+  doomgeneric_Create(argc, argv);
 
-    EM_ASM({
-      write_file(file_name, file_data);
-      if (file2_data)
-      {
-        write_file(file2_name, file2_data);
-      }
-    });
-
-    doomgeneric_Create(argc, argv);
-
-    EM_ASM({
-      app.setInterval("_doomjs_tick()", 0);
-    });
-    return 0;
-  }
+  EM_ASM({
+    app.setInterval("_doomjs_tick()", 0);
+  });
+  return 0;
+}
