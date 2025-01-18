@@ -52,10 +52,6 @@ jobs:
           fastcomp-build-
       continue-on-error: true
 
-    - name: Debug Fastcomp Build Directory
-      run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
-      continue-on-error: true
-
     - name: Build Fastcomp (if not cached)
       if: steps.fastcomp-cache.outputs.cache-hit != 'true'
       run: |
@@ -68,19 +64,38 @@ jobs:
         make -j$(nproc)
         cd ../..
       continue-on-error: true
+     
+    - name: Debug Fastcomp Build Directory
+      run: ls -lh ${{ github.workspace }}/fastcomp/build/bin
+      continue-on-error: true
+      
+    - name: Locate emcc
+      run: find fastcomp -name emcc
+      continue-on-error: true
 
     - name: Configure Fastcomp Environment
       run: |
         export LLVM=${{ github.workspace }}/fastcomp/build/bin
         export EMSCRIPTEN_ROOT=${{ github.workspace }}/fastcomp
-        export PATH=$LLVM:$PATH
+        export EMSCRIPTEN=$EMSCRIPTEN_ROOT
+        export PATH=$LLVM:$EMSCRIPTEN:$PATH
+
+        # Create an environment script for reuse
         echo "export LLVM=${{ github.workspace }}/fastcomp/build/bin" > emsdk_env.sh
         echo "export EMSCRIPTEN_ROOT=${{ github.workspace }}/fastcomp" >> emsdk_env.sh
         echo "export PATH=\$LLVM:\$PATH" >> emsdk_env.sh
+
+        # Verify the configuration
         source ./emsdk_env.sh
         which emcc
         emcc --version
       continue-on-error: true
+
+    - name: Save Fastcomp Cache
+      uses: actions/cache@v3
+      with:
+        path: fastcomp/build
+        key: fastcomp-build-${{ env.EMSCRIPTEN_FASTCOMP_BRANCH }}
 
     - name: Download DOOM WAD
       run: |
