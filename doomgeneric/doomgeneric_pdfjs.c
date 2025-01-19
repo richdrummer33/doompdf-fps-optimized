@@ -2,7 +2,7 @@
 #include <emscripten.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <string.h>  // **Added to declare memset and memcpy**
+#include <string.h> // **Added to declare memset and memcpy**
 #include "doomgeneric.h"
 #include "doomkeys.h"
 
@@ -26,7 +26,7 @@ uint32_t DG_GetTicksMs()
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
   int key_data = EM_ASM_INT({
-    if (key_queue.length === 0)
+    if (key_queue.length == = 0)
       return 0;
     let key_data = key_queue.shift();
     let key = key_data[0];
@@ -72,13 +72,8 @@ int key_to_doomkey(int key)
 // ==================== SHADING ====================
 // =================================================
 // Pre-computed ASCII shading LUT
-// Replace BOTH LUT definitions with a single array of full UTF-8 block chars:
-static const char *BLOCK_CHARS[4] = {
-    "\xE2\x96\x88", // "█" darkest
-    "\xE2\x96\x93", // "▓"
-    "\xE2\x96\x92", // "▒"
-    "\xE2\x96\x91"  // "░" lightest
-};
+// Single-byte ASCII shading characters from lightest to darkest
+static const char BLOCK_CHARS[4] = {' ', '.', ':', '#'};
 
 static uint8_t *ascii_buffer = NULL;
 static size_t ascii_buffer_size = 0;
@@ -94,7 +89,7 @@ void DG_Init()
 
   // Allocate ASCII buffer (3 bytes per character for UTF-8 blocks + 1 byte for '\n' per line)
   // Adjust buffer size to accommodate line breaks if implemented in C
-  ascii_buffer_size = (DOOMGENERIC_RESX * 3 + 1) * DOOMGENERIC_RESY; // 3 bytes for UTF-8 + 1 byte for '\n' per line
+  ascii_buffer_size = (DOOMGENERIC_RESX + 1) * DOOMGENERIC_RESY; // 3 bytes for UTF-8 + 1 byte for '\n' per line
   ascii_buffer = (uint8_t *)malloc(ascii_buffer_size);
 
   if (!ascii_buffer)
@@ -103,8 +98,12 @@ void DG_Init()
     exit(1);
   }
 
-  // Pre-warm the buffer
-  memset(ascii_buffer, ' ', ascii_buffer_size);
+  // Pre-warm the buffer with spaces and newlines
+  for (int y = 0; y < DOOMGENERIC_RESY; y++)
+  {
+    memset(&ascii_buffer[y * (DOOMGENERIC_RESX + 1)], ' ', DOOMGENERIC_RESX);
+    ascii_buffer[y * (DOOMGENERIC_RESX + 1) + DOOMGENERIC_RESX] = '\n';
+  }
 }
 
 void DG_DrawFrame()
@@ -117,9 +116,9 @@ void DG_DrawFrame()
     for (let key of Object.keys(pressed_keys))
     {
       key_queue.push([ key, !!pressed_keys[key] ]);
-      if (pressed_keys[key] === 0)
+      if (pressed_keys[key] == = 0)
         delete pressed_keys[key];
-      if (pressed_keys[key] === 2)
+      if (pressed_keys[key] == = 2)
         pressed_keys[key] = 0;
     }
   });
@@ -135,8 +134,7 @@ void DG_DrawFrame()
   const uint32_t *src = (uint32_t *)DG_ScreenBuffer;
   uint8_t *dst = ascii_buffer;
 
-  // Remove OpenMP pragma if not using pthreads
-  // #pragma omp parallel for collapse(2) schedule(static)
+  // No OpenMP pragmas for simplicity
   for (int y = 0; y < DOOMGENERIC_RESY; y++)
   {
     for (int x = 0; x < DOOMGENERIC_RESX; x++)
@@ -148,20 +146,15 @@ void DG_DrawFrame()
 
       // Fast brightness calculation
       uint8_t brightness = RGB_TO_BRIGHTNESS(r, g, b);
-      uint8_t shade_index = brightness >> 6; // Fast divide by 64, results in 0-3
+      uint8_t shade_index = brightness >> 6; // Results in 0-3
 
-      // Write UTF-8 block character (3 bytes)
-      const char *block = BLOCK_CHARS[shade_index];
-      // Calculate index in ASCII buffer
-      size_t idx = (y * (DOOMGENERIC_RESX * 3 + 1)) + x * 3;
-
-      // Copy 3 bytes of the UTF-8 character [memcpy(destination, source, size)]
-      memcpy(&dst[idx], block, 3);
+      // Map brightness to ASCII character
+      char shade_char = BLOCK_CHARS[shade_index];
+      dst[y * (DOOMGENERIC_RESX + 1) + x] = shade_char;
     }
 
-    // After each row, add a newline character
-    size_t newline_idx = (y * (DOOMGENERIC_RESX * 3 + 1)) + DOOMGENERIC_RESX * 3;
-    dst[newline_idx] = '\n';
+    // Add newline character at the end of each row
+    dst[y * (DOOMGENERIC_RESX + 1) + DOOMGENERIC_RESX] = '\n';
   }
 
   // 3. Send pre-computed ASCII buffer to JavaScript

@@ -89,25 +89,34 @@ function write_file(filename, data) {
 
 // ============================ render functions ============================
 // Efficient ASCII frame handling
+// Efficient ASCII frame handling
 let previousFrame = null;
-const decoder = new TextDecoder('utf-8');
 
 function update_ascii_frame(buffer_ptr, buffer_size, width, height) {
     // Get the pre-computed ASCII frame from C
     const asciiBuffer = Module.HEAPU8.subarray(buffer_ptr, buffer_ptr + buffer_size);
 
-    // Decode the UTF-8 buffer
-    const frame = decoder.decode(asciiBuffer);
+    // Convert Uint8Array to string directly
+    let frame = '';
+    for (let i = 0; i < asciiBuffer.length; i++) {
+        const byte = asciiBuffer[i];
+        if (byte === 10) { // '\n' character
+            frame += '\n';
+        } else {
+            frame += String.fromCharCode(byte);
+        }
+    }
 
     // Only update if frame changed
     if (frame !== previousFrame) {
         const displayField = globalThis.getField("mainDisplay");
         
-        // Since line breaks are already included, no need to format
+        // Directly set the frame as the value
         displayField.value = frame;
         previousFrame = frame;
     }
 }
+
 
 
 // New optimized framebuffer rendering (no c-optimizations)
