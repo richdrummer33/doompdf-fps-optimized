@@ -17,7 +17,11 @@ uint32_t get_time()
   });
 }
 
-void DG_SleepMs(uint32_t ms) {}
+void DG_SleepMs(uint32_t ms)
+{
+  // FPS limiting for DOM efficiency
+  EM_ASM_({ return new Promise(resolve = > setTimeout(resolve, $0)); }, ms);
+}
 
 uint32_t DG_GetTicksMs()
 {
@@ -37,6 +41,7 @@ static unsigned char brightness_lookup[256]; // 256*3 for R+G+B combinations
 void DG_Init()
 {
   start_time = get_time();
+  printf("Initializing DoomGeneric\n");
 
   // Initialize with final values after division
   for (int i = 0; i < 256; i++)
@@ -63,13 +68,15 @@ void DG_Init()
     window.rowCache = new Array($0).fill("#"); // Double quotes here
   },
          DOOMGENERIC_RESY);
+
+  printf("DoomGeneric initialized\n");
 }
 // < < < RB Edits < < <
 
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
   int key_data = EM_ASM_INT({
-    if (key_queue.length == = 0)
+    if (key_queue.length === 0)
       return 0;
     let key_data = key_queue.shift();
     let key = key_data[0];
@@ -120,9 +127,9 @@ void DG_DrawFrame()
     for (let key of Object.keys(pressed_keys))
     {
       key_queue.push([ key, !!pressed_keys[key] ]);
-      if (pressed_keys[key] == = 0)
+      if (pressed_keys[key] === 0)
         delete pressed_keys[key];
-      if (pressed_keys[key] == = 2)
+      if (pressed_keys[key] === 2)
         pressed_keys[key] = 0;
     }
   });
@@ -137,16 +144,27 @@ void DG_DrawFrame()
     {
       uint32_t pixel = row_start[x];
       // Add RGB and lookup directly - no second division needed
-      unsigned char bright = ((pixel >> 16) & 0xFF) +
-                             ((pixel >> 8) & 0xFF) +
-                             (pixel & 0xFF);
+      unsigned char bright = ((pixel >> 16) & 0xFF) + // col shifted to R
+                             ((pixel >> 8) & 0xFF) +  // col shifted to G
+                             (pixel & 0xFF);          // col shifted to B
+      // Div by 3 to get average and scale to 0-255 range(from upwards of 750)
+      bright /= 3;
       ascii_row[x] = ASCII_CHARS[brightness_lookup[bright]];
     }
 
     // Direct update with length instead of null terminator
     EM_ASM({
+            // Field access with error checking
+            const fieldName = "field_" + ($3 - $2 - 1);
+            const field = globalThis.getField(fieldName);
+            if (!field)
+            {
+              console.error("Field not found:", fieldName);
+              return;
+            }
+
+            // Only update if the row has changed
             const rowStr = UTF8ToString($0, $1);
-            const field = globalThis.getField("field_" + ($3-$2-1));
             if (field.value !== rowStr) {
                 field.value = rowStr;
             } }, ascii_row, DOOMGENERIC_RESX, y, DOOMGENERIC_RESY);
@@ -171,6 +189,7 @@ void doomjs_tick()
 int main(int argc, char **argv)
 {
   EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+  printf("Loading resources...\n");
 
   EM_ASM({
     write_file(file_name, file_data);
@@ -179,11 +198,14 @@ int main(int argc, char **argv)
       write_file(file2_name, file2_data);
     }
   });
+  printf("Resources loaded\n");
 
   doomgeneric_Create(argc, argv);
+  printf("Starting main loop\n");
 
   EM_ASM({
     app.setInterval("_doomjs_tick()", 0);
   });
+  printf("Main loop started\n");
   return 0;
 }
