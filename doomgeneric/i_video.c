@@ -49,19 +49,6 @@ rcsid[] = "$Id: i_x.c,v 1.6 1997/02/03 22:45:10 b1 Exp $";
 
 //#define CMAP256
 
-// RB defines for ascii doompdf
-// Each row will be a fixed-length string of ASCII characters
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 200
-#define ASCII_CHARS_PER_PIXEL 1
-#define ASCII_ROW_LENGTH (SCREEN_WIDTH * ASCII_CHARS_PER_PIXEL + 1) // +1 for null terminator
-
-// Pre-computed ASCII lookup table for 6 colors
-static const char ASCII_MAP[] = " .:-=+*";
-
-// Buffer for entire screen's worth of ASCII
-static char ascii_buffer[SCREEN_HEIGHT][ASCII_ROW_LENGTH];
-
 struct FB_BitField
 {
 	uint32_t offset;			/* beginning of bitfield	*/

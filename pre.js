@@ -1,4 +1,5 @@
 // pre.js - simplified to remove duplicate ASCII conversion
+// The rendering work is done in doomgeneric_pdfjs.c now(RB)
 
 var Module = {};
 var lines = [];
@@ -68,10 +69,78 @@ function reset_input_box() {
 }
 app.setInterval("reset_input_box()", 1000);
 
-function create_framebuffer(width, height) {
-    // print message
-    print_msg("Skipping framebuffer creation. Framebuffer implemented in doomgeneric_pdfjs.c");
+// Global state management
+let js_buffer = null;
+let field_cache = new Map();
+let frame_ready = false;
+
+function initFrameBuffer(width, height) {
+  try {
+    js_buffer = new Array(height).fill(null).map(() => 
+      new Array(width).fill("_")
+    );
+    frame_ready = true;
+    console.log(`Frame buffer initialized: ${width}x${height}`);
+    return true;
+  } catch (err) {
+    console.error("Failed to initialize frame buffer:", err);
+    return false;
+  }
 }
+
+// Cache PDF form fields for faster access
+function cacheFields(height) {
+  try {
+    for (let y = 0; y < height; y++) {
+      const fieldName = `field_${height-y-1}`;
+      const field = globalThis.getField(fieldName);
+      if (!field) {
+        throw new Error(`PDF field not found: ${fieldName}`);
+      }
+      field_cache.set(fieldName, field);
+    }
+    console.log("PDF fields cached successfully");
+    return true;
+  } catch (err) {
+    console.error("Failed to cache PDF fields:", err);
+    return false;
+  }
+}
+
+function updateFrame(ascii_frame, width, height) {
+  if (!frame_ready || !js_buffer) {
+    console.error("Frame buffer not initialized");
+    return false;
+  }
+
+  try {
+    for (let y = 0; y < height; y++) {
+      const row_str = UTF8ToString(ascii_frame + y * (width + 1), width);
+      const field = field_cache.get(`field_${height-y-1}`);
+      
+      if (!field) {
+        throw new Error(`Missing PDF field for row ${y}`);
+      }
+
+      // Only update if content changed
+      if (field.value !== row_str) {
+        field.value = row_str;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error("Frame update failed:", err);
+    return false;
+  }
+}
+
+// Make functions available to Emscripten
+Module['initFrameBuffer'] = initFrameBuffer;
+Module['cacheFields'] = cacheFields;
+Module['updateFrame'] = updateFrame;
+
+// Initialization status check
+Module['isFrameReady'] = () => frame_ready;
 
 // File system handling (unchanged)
 function write_file(filename, data) {

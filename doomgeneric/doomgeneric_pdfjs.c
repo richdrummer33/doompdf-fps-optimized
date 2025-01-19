@@ -2,11 +2,14 @@
 #include <emscripten.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <string.h> // RB Added
+#include <string.h>  // RB Added
+#include <stdbool.h> // RB Added (debug/testing)
+#include <stdlib.h>  // RB Added (debug/testing)
 #include "doomgeneric.h"
 #include "doomkeys.h"
 #include "m_argv.h" // RB Added
 
+static bool frame_initialized = false; // RB added (debug/testing)
 uint32_t start_time;
 int frame_count = 0;
 
@@ -41,12 +44,27 @@ static unsigned char brightness_lookup[256]; // 256*3 for R+G+B combinations
 // Initialize lookup tables
 void DG_Init()
 {
+  // Initialize timing
   start_time = get_time();
-  printf("(DG_Init) TEST PRINT 1\n");
-  EM_ASM({
-    Module.print("(DG_Init) TEST PRINT 2 - Direct JS call");
-    console.log("(DG_Init) TEST PRINT 3 - Browser console");
-  });
+
+  // First initialize the frame buffer in JavaScript
+  // RB added (debug/testing)
+  bool js_init = EM_ASM_INT({ return Module.initFrameBuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+  if (!js_init)
+  {
+    printf("Failed to initialize JavaScript frame buffer\n");
+    return;
+  }
+
+  // Then cache the PDF fields
+  // RB added (debug/testing)
+  bool fields_cached = EM_ASM_INT({ return Module.cacheFields($0); }, DOOMGENERIC_RESY);
+
+  if (!fields_cached)
+  {
+    printf("Failed to cache PDF fields\n");
+    return;
+  }
 
   // Initialize with final values after division
   for (int i = 0; i < 256; i++)
@@ -66,15 +84,8 @@ void DG_Init()
       brightness_lookup[i] = 5;
   }
 
-  // Tell JS how many rows we have
-  EM_ASM({
-    // window is SDL_Window for Emscripten
-    window.totalRows = $0;
-    window.rowCache = new Array($0).fill("#"); // Double quotes here
-  },
-         DOOMGENERIC_RESY);
-
-  printf("DoomGeneric initialized\n");
+  frame_initialized = true;
+  printf("DoomGeneric initialized successfully\n");
 }
 // < < < RB Edits < < <
 
@@ -127,6 +138,12 @@ int key_to_doomkey(int key)
 // > > > RB Edits > > >
 void DG_DrawFrame()
 {
+  if (!frame_initialized)
+  {
+    printf("Cannot draw frame - not initialized\n");
+    return;
+  }
+
   // Handle key events first
   EM_ASM({
     for (let key of Object.keys(pressed_keys))
@@ -145,7 +162,8 @@ void DG_DrawFrame()
     uint32_t *row_start = &DG_ScreenBuffer[y * DOOMGENERIC_RESX];
     char *ascii_row = ascii_rows[y];
 
-    for (int x = 0; x < DOOMGENERIC_RESX; x++)
+    // Latest optimized ASCII conversion
+    /*for (int x = 0; x < DOOMGENERIC_RESX; x++)
     {
       uint32_t pixel = row_start[x];
       // Add RGB and lookup directly - no second division needed
@@ -155,10 +173,28 @@ void DG_DrawFrame()
       // Div by 3 to get average and scale to 0-255 range(from upwards of 750)
       bright /= 3;
       ascii_row[x] = ASCII_CHARS[brightness_lookup[bright]];
+    }*/
+    // Simplified ASCII conversion (for debug/testing)
+    for (int y = 0; y < DOOMGENERIC_RESY; y++)
+    {
+      uint32_t *row_start = &DG_ScreenBuffer[y * DOOMGENERIC_RESX];
+      char *ascii_row = ascii_rows[y];
+
+      for (int x = 0; x < DOOMGENERIC_RESX; x++)
+      {
+        uint32_t pixel = row_start[x];
+        unsigned char r = (pixel >> 16) & 0xFF;
+        unsigned char g = (pixel >> 8) & 0xFF;
+        unsigned char b = pixel & 0xFF;
+        unsigned char bright = (r + g + b) / 3;
+        ascii_row[x] = ASCII_CHARS[brightness_lookup[bright]];
+      }
+      ascii_row[DOOMGENERIC_RESX] = '\0'; // Null terminate
     }
 
     // Direct update with length instead of null terminator
-    EM_ASM({
+    // Optimized version (maybe this itself not optimal, but was part of the optim code avobe)
+    /*EM_ASM({
             // Field access with error checking
             const fieldName = "field_" + ($3 - $2 - 1);
             const field = globalThis.getField(fieldName);
@@ -173,44 +209,51 @@ void DG_DrawFrame()
             if (field.value !== rowStr) {
                 field.value = rowStr;
             } }, ascii_row, DOOMGENERIC_RESX, y, DOOMGENERIC_RESY);
-  }
-}
-// < < < RB Edits < < <
+  }*/
+    // Update the frame in JavaScript
+    bool update_success = EM_ASM_INT({ return Module.updateFrame($0, $1, $2); }, ascii_rows, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 
-void doomjs_tick()
-{
-  int start = get_time();
-  doomgeneric_Tick();
-  int end = get_time();
-  frame_count++;
-
-  if (frame_count % 30 == 0)
-  {
-    int fps = 1000 / (end - start);
-    printf("frame time: %i ms (%i fps)\n", end - start, fps);
-  }
-}
-
-int main(int argc, char **argv)
-{
-  EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
-  printf("Loading resources...\n");
-
-  EM_ASM({
-    write_file(file_name, file_data);
-    if (file2_data)
+    if (!update_success)
     {
-      write_file(file2_name, file2_data);
+      printf("Frame update failed\n");
     }
-  });
-  printf("Resources loaded\n");
+  }
+  // < < < RB Edits < < <
 
-  doomgeneric_Create(argc, argv);
-  printf("Starting main loop\n");
+  void doomjs_tick()
+  {
+    int start = get_time();
+    doomgeneric_Tick();
+    int end = get_time();
+    frame_count++;
 
-  EM_ASM({
-    app.setInterval("_doomjs_tick()", 0);
-  });
-  printf("Main loop started\n");
-  return 0;
-}
+    if (frame_count % 30 == 0)
+    {
+      int fps = 1000 / (end - start);
+      printf("frame time: %i ms (%i fps)\n", end - start, fps);
+    }
+  }
+
+  int main(int argc, char **argv)
+  {
+    EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+    printf("Loading resources...\n");
+
+    EM_ASM({
+      write_file(file_name, file_data);
+      if (file2_data)
+      {
+        write_file(file2_name, file2_data);
+      }
+    });
+    printf("Resources loaded\n");
+
+    doomgeneric_Create(argc, argv);
+    printf("Starting main loop\n");
+
+    EM_ASM({
+      app.setInterval("_doomjs_tick()", 0);
+    });
+    printf("Main loop started\n");
+    return 0;
+  }
