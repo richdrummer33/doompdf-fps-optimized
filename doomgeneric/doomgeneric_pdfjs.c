@@ -2,6 +2,7 @@
 #include <emscripten.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>  // **Added to declare memset and memcpy**
 #include "doomgeneric.h"
 #include "doomkeys.h"
 
