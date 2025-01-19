@@ -26,7 +26,7 @@ uint32_t DG_GetTicksMs()
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
   int key_data = EM_ASM_INT({
-    if (key_queue.length == = 0)
+    if (key_queue.length === 0)
       return 0;
     let key_data = key_queue.shift();
     let key = key_data[0];
@@ -73,7 +73,7 @@ int key_to_doomkey(int key)
 // =================================================
 // Pre-computed ASCII shading LUT
 // Single-byte ASCII shading characters from lightest to darkest
-static const char BLOCK_CHARS[4] = {' ', '.', ':', '#'};
+static const char BLOCK_CHARS[4] = {' ', '.', ':', '#'}; // Single-byte ASCII chars
 
 static uint8_t *ascii_buffer = NULL;
 static size_t ascii_buffer_size = 0;
@@ -87,9 +87,8 @@ void DG_Init()
 {
   start_time = get_time();
 
-  // Allocate ASCII buffer (3 bytes per character for UTF-8 blocks + 1 byte for '\n' per line)
   // Adjust buffer size to accommodate line breaks if implemented in C
-  ascii_buffer_size = (DOOMGENERIC_RESX + 1) * DOOMGENERIC_RESY; // 3 bytes for UTF-8 + 1 byte for '\n' per line
+  ascii_buffer_size = (DOOMGENERIC_RESX + 1) * DOOMGENERIC_RESY; // Only 1 byte per char + newlines
   ascii_buffer = (uint8_t *)malloc(ascii_buffer_size);
 
   if (!ascii_buffer)
@@ -101,7 +100,7 @@ void DG_Init()
   // Pre-warm the buffer with spaces and newlines
   for (int y = 0; y < DOOMGENERIC_RESY; y++)
   {
-    memset(&ascii_buffer[y * (DOOMGENERIC_RESX + 1)], ' ', DOOMGENERIC_RESX);
+    memset(&ascii_buffer[y * (DOOMGENERIC_RESX + 1)], 0, DOOMGENERIC_RESX);
     ascii_buffer[y * (DOOMGENERIC_RESX + 1) + DOOMGENERIC_RESX] = '\n';
   }
 }
@@ -116,9 +115,9 @@ void DG_DrawFrame()
     for (let key of Object.keys(pressed_keys))
     {
       key_queue.push([ key, !!pressed_keys[key] ]);
-      if (pressed_keys[key] == = 0)
+      if (pressed_keys[key] === 0)
         delete pressed_keys[key];
-      if (pressed_keys[key] == = 2)
+      if (pressed_keys[key] === 2)
         pressed_keys[key] = 0;
     }
   });
@@ -146,7 +145,8 @@ void DG_DrawFrame()
 
       // Fast brightness calculation
       uint8_t brightness = RGB_TO_BRIGHTNESS(r, g, b);
-      uint8_t shade_index = brightness >> 6; // Results in 0-3
+      uint8_t shade_index = brightness >> 6;             // Results in 0-3
+      shade_index = (shade_index > 3) ? 3 : shade_index; // Add safety bound
 
       // Map brightness to ASCII character
       char shade_char = BLOCK_CHARS[shade_index];

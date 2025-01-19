@@ -123,7 +123,8 @@ function update_ascii_frame(buffer_ptr, buffer_size, width, height) {
 /*let previousFrame = '';
 const BLOCK_CHARS = ['█', '▓', '▒', '░'];  // From darkest to lightest
 
-function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
+function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) 
+{
   const framebuffer = Module.HEAPU8.subarray(framebuffer_ptr, framebuffer_ptr + framebuffer_len);
   const frame = [];
   frameCount++;
