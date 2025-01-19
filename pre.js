@@ -68,6 +68,11 @@ function reset_input_box() {
 }
 app.setInterval("reset_input_box()", 1000);
 
+function create_framebuffer(width, height) {
+    // print message
+    print_msg("Skipping framebuffer creation. Framebuffer implemented in doomgeneric_pdfjs.c");
+}
+
 // File system handling (unchanged)
 function write_file(filename, data) {
     let stream = FS.open("/"+filename, "w+");

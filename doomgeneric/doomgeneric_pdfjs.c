@@ -2,10 +2,10 @@
 #include <emscripten.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h> // RB Added
 #include "doomgeneric.h"
 #include "doomkeys.h"
 #include "m_argv.h" // RB Added
-#include <string.h> // RB Added
 
 uint32_t start_time;
 int frame_count = 0;
@@ -31,11 +31,13 @@ static const char ASCII_CHARS[] = "_::?//b#";
 static const unsigned char THRESHOLDS[] = {200, 150, 100, 50, 25, 0};
 
 // Lookup table for faster brightness calculations (pre-computed)
-static unsigned char brightness_lookup[768]; // 256*3 for R+G+B combinations
+static unsigned char brightness_lookup[256]; // 256*3 for R+G+B combinations
 
 // Initialize lookup tables
 void DG_Init()
 {
+  start_time = get_time();
+
   // Initialize with final values after division
   for (int i = 0; i < 256; i++)
   {
@@ -53,11 +55,12 @@ void DG_Init()
     else
       brightness_lookup[i] = 5;
   }
+
   // Tell JS how many rows we have
   EM_ASM({
     // window is SDL_Window for Emscripten
     window.totalRows = $0;
-    window.rowCache = new Array($0).fill(""); // Double quotes here
+    window.rowCache = new Array($0).fill("#"); // Double quotes here
   },
          DOOMGENERIC_RESY);
 }
@@ -109,19 +112,6 @@ int key_to_doomkey(int key)
   return tolower(key);
 }
 
-// Move to a separate debug function
-void DG_DebugInfo()
-{
-  static int last_frame_time = 0;
-  int current_time = get_time();
-  if (frame_count % 60 == 0)
-  {
-    int frame_time = current_time - last_frame_time;
-    EM_ASM({ console.log(`Frame ${$0} : avg time ${$1} ms`); }, frame_count, frame_time / 60);
-  }
-  last_frame_time = current_time;
-}
-
 // > > > RB Edits > > >
 void DG_DrawFrame()
 {
@@ -137,6 +127,7 @@ void DG_DrawFrame()
     }
   });
 
+  // Convert RGB to ASCII
   for (int y = 0; y < DOOMGENERIC_RESY; y++)
   {
     uint32_t *row_start = &DG_ScreenBuffer[y * DOOMGENERIC_RESX];
@@ -160,9 +151,6 @@ void DG_DrawFrame()
                 field.value = rowStr;
             } }, ascii_row, DOOMGENERIC_RESX, y, DOOMGENERIC_RESY);
   }
-
-  // Tick frame timer and print debug info
-  DG_DebugInfo();
 }
 // < < < RB Edits < < <
 
