@@ -181,7 +181,8 @@ void doomjs_tick()
 
 int main(int argc, char **argv)
 {
-  EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+	// N/A (implemented in c, here)
+  // EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 
   EM_ASM({
     write_file(file_name, file_data);

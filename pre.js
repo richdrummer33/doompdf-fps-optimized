@@ -21,8 +21,13 @@ function init_display(width, height) {
   return { displayField, consoleField };
 }
 
-// Console handling
+// Add initialization check
 function print_msg(msg) {
+  if (!globalThis.getField) {
+    console.log(msg); // Fallback to console during early init
+    return;
+  }
+  
   lines.push(msg);
   if (lines.length > 25) {
     lines.shift();
@@ -30,11 +35,17 @@ function print_msg(msg) {
 
   // Update console every 10 frames
   if (frameCount % 10 === 0) {
-    globalThis.getField("consoleDisplay").value = lines.join('\n');
+    const consoleField = globalThis.getField("consoleDisplay");
+    if (consoleField) {
+      consoleField.value = lines.join('\n');
+    }
   }
 }
 
+// Ensure Module.print is resilient
 Module.print = function(msg) {
+  if (!msg) return; // Guard against undefined messages
+  
   const max_len = 80;
   const num_lines = Math.ceil(msg.length / max_len);
   
