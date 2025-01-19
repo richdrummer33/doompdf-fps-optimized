@@ -26,12 +26,14 @@ uint32_t DG_GetTicksMs()
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
   int key_data = EM_ASM_INT({
+    // clang-format off
     if (key_queue.length === 0)
       return 0;
     let key_data = key_queue.shift();
     let key = key_data[0];
     let pressed = key_data[1];
     return (pressed << 8) | key;
+    // clang-format on
   });
 
   if (key_data == 0)
@@ -73,7 +75,7 @@ int key_to_doomkey(int key)
 // =================================================
 // Pre-computed ASCII shading LUT
 // Single-byte ASCII shading characters from lightest to darkest
-static const char BLOCK_CHARS[4] = {' ', '.', ':', '#'}; // Single-byte ASCII chars
+static const char BLOCK_CHARS[4] = {'-', '?', '%', '#'}; // Single-byte ASCII chars
 
 static uint8_t *ascii_buffer = NULL;
 static size_t ascii_buffer_size = 0;
@@ -110,30 +112,17 @@ void DG_DrawFrame()
   uint32_t current_time = get_time();
   uint32_t frame_delta = current_time - last_frame_time;
 
-  // 1. Process input queue
-  EM_ASM({
-    for (let key of Object.keys(pressed_keys))
-    {
-      key_queue.push([ key, !!pressed_keys[key] ]);
-      if (pressed_keys[key] === 0)
-        delete pressed_keys[key];
-      if (pressed_keys[key] === 2)
-        pressed_keys[key] = 0;
-    }
-  });
-
-  // Render Frame-rate Limiting
+  // Frame-rate Limiting
   if (frame_delta < TARGET_FRAME_TIME)
   {
     return;
   }
   last_frame_time = current_time;
 
-  // 2. Convert framebuffer to ASCII art on the C side
+  // Convert framebuffer to ASCII art on the C side
   const uint32_t *src = (uint32_t *)DG_ScreenBuffer;
   uint8_t *dst = ascii_buffer;
 
-  // No OpenMP pragmas for simplicity
   for (int y = 0; y < DOOMGENERIC_RESY; y++)
   {
     for (int x = 0; x < DOOMGENERIC_RESX; x++)
@@ -143,12 +132,9 @@ void DG_DrawFrame()
       uint8_t g = (pixel >> 8) & 0xFF;
       uint8_t b = pixel & 0xFF;
 
-      // Fast brightness calculation
       uint8_t brightness = RGB_TO_BRIGHTNESS(r, g, b);
-      uint8_t shade_index = brightness >> 6;             // Results in 0-3
-      shade_index = (shade_index > 3) ? 3 : shade_index; // Add safety bound
+      uint8_t shade_index = brightness >> 6; // 0-3
 
-      // Map brightness to ASCII character
       char shade_char = BLOCK_CHARS[shade_index];
       dst[y * (DOOMGENERIC_RESX + 1) + x] = shade_char;
     }
@@ -157,8 +143,21 @@ void DG_DrawFrame()
     dst[y * (DOOMGENERIC_RESX + 1) + DOOMGENERIC_RESX] = '\n';
   }
 
-  // 3. Send pre-computed ASCII buffer to JavaScript
-  EM_ASM({ update_ascii_frame($0, $1, $2, $3); }, ascii_buffer, ascii_buffer_size, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+  // Combine input processing and frame update
+  EM_ASM({
+        // 1. Process input queue
+        // clang-format off
+        for (let key of Object.keys(pressed_keys)) {
+            key_queue.push([ key, !!pressed_keys[key] ]);
+            if (pressed_keys[key] === 0)
+                delete pressed_keys[key];
+            if (pressed_keys[key] === 2)
+                pressed_keys[key] = 0;
+                // clang-format on
+        }
+
+        // 2. Update ASCII frame
+        update_ascii_frame($0, $1, $2, $3); }, ascii_buffer, ascii_buffer_size, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 }
 
 // ==================== MAIN ====================
@@ -181,7 +180,7 @@ void doomjs_tick()
 
 int main(int argc, char **argv)
 {
-	// N/A (implemented in c, here)
+  // N/A (implemented in c, here)
   // EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 
   EM_ASM({
