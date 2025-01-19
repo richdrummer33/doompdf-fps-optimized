@@ -17,11 +17,10 @@ uint32_t get_time()
   });
 }
 
-// TODO: Uncomment timeout for sleep handling to limit DOM I think?
 void DG_SleepMs(uint32_t ms)
 {
   // FPS limiting for DOM efficiency
-  // EM_ASM_({ return new Promise(resolve = > setTimeout(resolve, $0)); }, ms);
+  EM_ASM_({ return new Promise(resolve = > setTimeout(resolve, $0)); }, ms);
 }
 
 uint32_t DG_GetTicksMs()
@@ -42,11 +41,7 @@ static unsigned char brightness_lookup[256]; // 256*3 for R+G+B combinations
 void DG_Init()
 {
   start_time = get_time();
-  printf("(DG_Init) TEST PRINT 1\n");
-  EM_ASM({
-    Module.print("(DG_Init) TEST PRINT 2 - Direct JS call");
-    console.log("(DG_Init) TEST PRINT 3 - Browser console");
-  });
+  printf("Initializing DoomGeneric\n");
 
   // Initialize with final values after division
   for (int i = 0; i < 256; i++)
@@ -81,7 +76,7 @@ void DG_Init()
 int DG_GetKey(int *pressed, unsigned char *doomKey)
 {
   int key_data = EM_ASM_INT({
-    if (key_queue.length == = 0)
+    if (key_queue.length === 0)
       return 0;
     let key_data = key_queue.shift();
     let key = key_data[0];
@@ -132,9 +127,9 @@ void DG_DrawFrame()
     for (let key of Object.keys(pressed_keys))
     {
       key_queue.push([ key, !!pressed_keys[key] ]);
-      if (pressed_keys[key] == = 0)
+      if (pressed_keys[key] === 0)
         delete pressed_keys[key];
-      if (pressed_keys[key] == = 2)
+      if (pressed_keys[key] === 2)
         pressed_keys[key] = 0;
     }
   });

@@ -1,0 +1,52 @@
+ifeq ($(V),1)
+    VB=''
+else
+    VB=@
+endif
+
+CC=clang  # Same as original, can fall back to gcc
+OBJDIR=build
+OUTPUT=doom_debug
+
+# Keeping essential flags from original
+CFLAGS=-ggdb3 -Wall -DDEBUG_NATIVE -DNORMALUNIX -D_DEFAULT_SOURCE
+LIBS=-lm -lc
+
+# Minimal set of source files needed for ASCII renderer test
+SRC_DOOM = doomgeneric_terminaltest_for_pdfjs.c \
+           doomgeneric.c \
+           doomgeneric_debug.c \
+           m_argv.c \
+           i_video.c \
+           z_zone.c
+
+OBJS=$(addprefix $(OBJDIR)/, $(SRC_DOOM:.c=.o))
+
+all: $(OUTPUT)
+
+clean:
+	rm -rf $(OBJDIR)
+	rm -f $(OUTPUT)
+	rm -f $(OUTPUT).gdb
+	rm -f $(OUTPUT).map
+
+$(OUTPUT): $(OBJS)
+	@echo [Linking $@]
+	$(VB)$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) \
+	-o $(OUTPUT) $(LIBS) -Wl,-Map,$(OUTPUT).map
+	@echo [Size]
+	-size $(OUTPUT)
+
+$(OBJS): | $(OBJDIR)
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(OBJDIR)/%.o: %.c
+	@echo [Compiling $<]
+	$(VB)$(CC) $(CFLAGS) -c $< -o $@
+
+print:
+	@echo OBJS: $(OBJS)
+
+.PHONY: all clean print
