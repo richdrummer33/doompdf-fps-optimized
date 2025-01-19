@@ -3,7 +3,6 @@ var lines = [];
 var pressed_keys = {};
 var key_queue = [];
 let frameCount = 0;
-let previousFrame = '';
 
 // Initialize display fields
 function init_display(width, height) {
@@ -88,7 +87,31 @@ function write_file(filename, data) {
   FS.close(stream);
 }
 
-// New optimized framebuffer rendering
+// ============================ render functions ============================
+// Efficient ASCII frame handling
+let previousFrame = null;
+const decoder = new TextDecoder('utf-8');
+
+function update_ascii_frame(buffer_ptr, buffer_size, width, height) {
+    // Get the pre-computed ASCII frame from C
+    const asciiBuffer = Module.HEAPU8.subarray(buffer_ptr, buffer_ptr + buffer_size);
+
+    // Decode the UTF-8 buffer
+    const frame = decoder.decode(asciiBuffer);
+
+    // Only update if frame changed
+    if (frame !== previousFrame) {
+        const displayField = globalThis.getField("mainDisplay");
+        
+        // Since line breaks are already included, no need to format
+        displayField.value = frame;
+        previousFrame = frame;
+    }
+}
+
+
+// New optimized framebuffer rendering (no c-optimizations)
+/*let previousFrame = '';
 const BLOCK_CHARS = ['█', '▓', '▒', '░'];  // From darkest to lightest
 
 function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
@@ -117,4 +140,4 @@ function update_framebuffer(framebuffer_ptr, framebuffer_len, width, height) {
     globalThis.getField("mainDisplay").value = newFrame;
     previousFrame = newFrame;
   }
-}
+}*/

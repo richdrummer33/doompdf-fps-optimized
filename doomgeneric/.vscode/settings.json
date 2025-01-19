@@ -1,0 +1,20 @@
+{
+  "files.associations": {
+    "*.yarnproject": "jsonc",
+    "any": "c",
+    "atomic": "c",
+    "charconv": "c",
+    "cstring": "c",
+    "filesystem": "c",
+    "format": "c",
+    "strstream": "c",
+    "system_error": "c",
+    "xlocale": "c",
+    "xlocbuf": "c",
+    "xlocinfo": "c",
+    "xlocmon": "c",
+    "xmemory": "c",
+    "xstring": "c",
+    "xutility": "c"
+  }
+}
