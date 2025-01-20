@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h> // **Added to declare memset and memcpy**
+#include "i_video.h"
 #include "doomgeneric.h"
 #include "doomkeys.h"
 
@@ -123,9 +124,9 @@ void DG_DrawFrame()
   const uint32_t *src = (uint32_t *)DG_ScreenBuffer;
   uint8_t *dst = ascii_buffer;
 
-  for (int y = 0; y < DOOMGENERIC_RESY; y++)
+  for (int y = 0; y < SCREENHEIGHT; y += SCREENHEIGHT / DOOMGENERIC_RESY)
   {
-    for (int x = 0; x < DOOMGENERIC_RESX; x++)
+    for (int x = 0; x < SCREENWIDTH; x += SCREENWIDTH / DOOMGENERIC_RESX)
     {
       uint32_t pixel = src[y * DOOMGENERIC_RESX + x];
       uint8_t r = (pixel >> 16) & 0xFF;

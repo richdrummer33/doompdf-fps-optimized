@@ -100,10 +100,15 @@ function write_file(filename, data) {
 // ============================ RENDER FUNCS ============================
 // ======================================================================
 
+
 function update_ascii_frame(buffer_ptr, buffer_size, width, height) {
     const asciiBuffer = Module.HEAPU8.subarray(buffer_ptr, buffer_ptr + buffer_size);
     let currentLine = '';
-    let lineNum = 0;
+  let lineNum = 0;
+  
+  if (frameCount % 10 === 0) {
+    print_msg("framebuffer size: " + buffer_size + " width: " + width + " height: " + height);
+  }
     
     for (let i = 0; i < asciiBuffer.length; i++) {
         const byte = asciiBuffer[i];

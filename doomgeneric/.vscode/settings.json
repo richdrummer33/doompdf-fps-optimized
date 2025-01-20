@@ -15,6 +15,12 @@
     "xlocmon": "c",
     "xmemory": "c",
     "xstring": "c",
-    "xutility": "c"
+    "xutility": "c",
+    "chrono": "cpp",
+    "iomanip": "cpp",
+    "istream": "cpp",
+    "ostream": "cpp",
+    "xiosbase": "cpp",
+    "xlocnum": "cpp"
   }
 }

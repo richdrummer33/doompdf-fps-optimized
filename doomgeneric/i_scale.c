@@ -141,6 +141,42 @@ screen_mode_t mode_scale_2x = {
     false,
 };
 
+// scale half-width (320x200 -> 160x200)
+
+static boolean I_ScaleHalf(int x1, int y1, int x2, int y2)
+{
+    byte *bufp, *screenp;
+    int x, y;
+
+    bufp = src_buffer + y1 * SCREENWIDTH + x1;
+    screenp = (byte *) dest_buffer + y1 * dest_pitch + x1 / 2;
+
+    for (y = y1; y < y2; ++y)
+    {
+        byte *bp = bufp;
+        byte *sp = screenp;
+
+        for (x = x1; x < x2; x += 2)
+        {
+            *sp++ = *bp;
+            bp += 2;
+        }
+
+        bufp += SCREENWIDTH;
+        screenp += dest_pitch;
+    }
+
+    return true;
+}
+
+screen_mode_t mode_scale_half = {
+    SCREENWIDTH / 2, SCREENHEIGHT,
+    NULL,
+    I_ScaleHalf,
+    false,
+};
+
+
 // 3x scale (960x600)
 
 static boolean I_Scale3x(int x1, int y1, int x2, int y2)
