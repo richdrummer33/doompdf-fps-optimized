@@ -30,13 +30,12 @@
 #define WIN32
 #if defined(_WIN32) || defined(WIN32)
 
-#define OS_WINDOWS
+// #define OS_WINDOWS ... #include <windows.h>
 #define WIN32_LEAN_AND_MEAN
 #define FRAME_LIMITING
 // #define DOUBLE_CHAR_ASPECT
 // #define USE_COLOR
 
-#include <windows.h>
 #else
 #include <sys/ioctl.h>
 #include <termios.h>
@@ -153,6 +152,7 @@ void DG_AtExit(void)
 	t.c_lflag |= ECHO;
 	tcsetattr(STDIN_FILENO, TCSANOW, &t);
 #endif
+	free(output_buffer); // Add this line
 }
 
 void DG_Init()
