@@ -352,7 +352,7 @@ void DG_DrawFrame()
 	*buf = 'm';
 #endif
 
-	Sleep(1);
+	Sleep(3);
 	copy_to_clipboard(output_buffer);
 	Sleep(1);
 	simulate_key_combo(VK_CONTROL, 'A'); // Simulates Ctrl+A
@@ -814,11 +814,13 @@ void DG_SetWindowTitle(const char *const title)
 
 // =========================  GLOBAL INPUT HANDLING  =========================
 // Global state for input handling
+// Add to InputState struct
 typedef struct {
 	HHOOK keyboardHook;
 	CRITICAL_SECTION inputLock;
 	unsigned char current_input_buffer[INPUT_BUFFER_LEN];
 	unsigned input_count;
+	BOOL keyStates[256];  // Track key states to handle auto-repeat
 } InputState;
 
 static InputState g_inputState = { 0 };
@@ -826,35 +828,54 @@ static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static unsigned short event_buffer[EVENT_BUFFER_LEN];
 static unsigned short* event_buf_loc;
 
-// The keyboard hook callback
+// Modified keyboard hook callback
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
 	if (nCode == HC_ACTION)
 	{
 		KBDLLHOOKSTRUCT* pKeyBoard = (KBDLLHOOKSTRUCT*)lParam;
 
+		// Filter out injected keystrokes
+		if (pKeyBoard->flags & LLKHF_INJECTED)
+			return CallNextHookEx(g_inputState.keyboardHook, nCode, wParam, lParam);
+
 		EnterCriticalSection(&g_inputState.inputLock);
 
 		// Only process if we have room in the buffer
 		if (g_inputState.input_count < INPUT_BUFFER_LEN - 1u)
 		{
-			unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, 0);
+			// Get both virtual key and scan code for better mapping
+			BYTE state[256] = { 0 };
+			WORD ascii = 0;
+			GetKeyboardState(state);
+			ToAscii(pKeyBoard->vkCode, pKeyBoard->scanCode, state, &ascii, 0);
+
+			unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, (char)ascii);
 			if (inp)
 			{
 				switch (wParam)
 				{
 				case WM_KEYDOWN:
-					// Add key to current input buffer if not already present
-					for (unsigned i = 0; i < g_inputState.input_count; i++)
+				case WM_SYSKEYDOWN:
+					// Only process if key wasn't already down
+					if (!g_inputState.keyStates[pKeyBoard->vkCode])
 					{
-						if (g_inputState.current_input_buffer[i] == inp)
-							goto skip_add;
+						g_inputState.keyStates[pKeyBoard->vkCode] = TRUE;
+
+						// Add key to current input buffer if not already present
+						for (unsigned i = 0; i < g_inputState.input_count; i++)
+						{
+							if (g_inputState.current_input_buffer[i] == inp)
+								goto skip_add;
+						}
+						g_inputState.current_input_buffer[g_inputState.input_count++] = inp;
 					}
-					g_inputState.current_input_buffer[g_inputState.input_count++] = inp;
 				skip_add:
 					break;
 
 				case WM_KEYUP:
+				case WM_SYSKEYUP:
+					g_inputState.keyStates[pKeyBoard->vkCode] = FALSE;
 					// Remove key from current input buffer
 					for (unsigned i = 0; i < g_inputState.input_count; i++)
 					{
@@ -878,11 +899,26 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 	return CallNextHookEx(g_inputState.keyboardHook, nCode, wParam, lParam);
 }
 
+
+// Modified initialization
 BOOL InitializeInput(void)
 {
 	InitializeCriticalSection(&g_inputState.inputLock);
 	memset(&g_inputState.current_input_buffer, 0, INPUT_BUFFER_LEN);
+	memset(&g_inputState.keyStates, 0, sizeof(g_inputState.keyStates));
 	g_inputState.input_count = 0;
+
+	// Try to get debug privileges for the hook
+	HANDLE hToken;
+	TOKEN_PRIVILEGES tkp;
+	if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+	{
+		LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &tkp.Privileges[0].Luid);
+		tkp.PrivilegeCount = 1;
+		tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+		AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+		CloseHandle(hToken);
+	}
 
 	g_inputState.keyboardHook = SetWindowsHookEx(
 		WH_KEYBOARD_LL,
@@ -900,17 +936,7 @@ BOOL InitializeInput(void)
 	return TRUE;
 }
 
-void CleanupInput(void)
-{
-	if (g_inputState.keyboardHook)
-	{
-		UnhookWindowsHookEx(g_inputState.keyboardHook);
-		g_inputState.keyboardHook = NULL;
-	}
-
-	DeleteCriticalSection(&g_inputState.inputLock);
-}
-
+// Add debug printing to DG_ReadInput (temporary)
 void DG_ReadInput(void)
 {
 	static unsigned char prev_input_buffer[INPUT_BUFFER_LEN];
@@ -920,6 +946,12 @@ void DG_ReadInput(void)
 	event_buf_loc = event_buffer;
 
 	EnterCriticalSection(&g_inputState.inputLock);
+
+	// Debug print
+	printf("Current input count: %d\n", g_inputState.input_count);
+	for (unsigned i = 0; i < g_inputState.input_count; i++) {
+		printf("Key[%d]: %d\n", i, g_inputState.current_input_buffer[i]);
+	}
 
 	// Copy current state to input buffer
 	memcpy(input_buffer, g_inputState.current_input_buffer, g_inputState.input_count);
@@ -955,6 +987,17 @@ void DG_ReadInput(void)
 	}
 	event_buf_loc = event_buffer;
 }
+
+void CleanupInput(void)
+{
+	if (g_inputState.keyboardHook)
+	{
+		UnhookWindowsHookEx(g_inputState.keyboardHook);
+		g_inputState.keyboardHook = NULL;
+	}
+
+	DeleteCriticalSection(&g_inputState.inputLock);
+}
 // ========================= (END) GLOBAL INPUT HANDLING  =========================
 
 
@@ -985,6 +1028,7 @@ int main(int argc, char** argv)
 				goto cleanup;
 		}
 
+		DG_ReadInput();  // Add this here if you can't modify doomgeneric_Tick
 		doomgeneric_Tick();
 	}
 
