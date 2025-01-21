@@ -220,12 +220,25 @@ void simulate_key_combo(WORD key1, WORD key2) {
 	SendInput(4, inputs, sizeof(INPUT));
 }
 
+
+const int CLEAR_INTERVAL = 30;
+
+
 // Function to copy text to the clipboard
-void copy_to_clipboard(const char* text) {
+void copy_to_clipboard(const char* text) 
+{
 	// Open the clipboard
 	if (!OpenClipboard(NULL)) {
 		fprintf(stderr, "Failed to open clipboard.\n");
-		return;
+		
+		int numAttepts = 0;
+		while (!OpenClipboard(NULL))
+		{
+			Sleep(1);
+			if (numAttepts > 10)
+				return;
+		}
+		// return;
 	}
 
 	// Empty the clipboard
@@ -269,6 +282,7 @@ void copy_to_clipboard(const char* text) {
 static uint32_t sum_frame_time = 0;
 static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
+const int TARGET_FRAMETIME = 40;
 
 void DG_DrawFrame()
 {    
@@ -277,10 +291,17 @@ void DG_DrawFrame()
 	// printf("Clear\n");
 	// system("cls");  // Add this
 #endif
-
+	
 	uint32_t current_time = DG_GetTicksMs();
 	uint32_t frame_time = current_time - last_time;
 	last_time = current_time;
+
+
+	// Sleep the ms to make const fps
+	if (frame_time < TARGET_FRAMETIME)
+	{
+		Sleep(TARGET_FRAMETIME - frame_time);
+	}
 
 	sum_frame_time += frame_time;
 	frame_count++;
@@ -352,7 +373,7 @@ void DG_DrawFrame()
 	*buf = 'm';
 #endif
 
-	Sleep(3);
+	//Sleep(1);
 	copy_to_clipboard(output_buffer);
 	Sleep(1);
 	simulate_key_combo(VK_CONTROL, 'A'); // Simulates Ctrl+A
@@ -851,6 +872,30 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 			ToAscii(pKeyBoard->vkCode, pKeyBoard->scanCode, state, &ascii, 0);
 
 			unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, (char)ascii);
+
+			// Only process if we have room in the buffer
+			if (g_inputState.input_count < INPUT_BUFFER_LEN - 1u)
+			{
+				// Map both CTRL and Space to the shooting key
+				// CTRL doesnt seem to get picked up, space does
+				if (pKeyBoard->vkCode == VK_SPACE ||
+					pKeyBoard->vkCode == VK_CONTROL ||
+					pKeyBoard->vkCode == VK_LCONTROL ||
+					pKeyBoard->vkCode == VK_RCONTROL)
+				{
+					inp = KEY_FIRE;  // or whatever DOOM's fire key constant is
+				}
+				else if (pKeyBoard->vkCode == 'E') {
+					inp = KEY_USE;
+				}
+				else if (pKeyBoard->vkCode == 'A') {
+					inp = KEY_STRAFE_L;
+				}
+				else if (pKeyBoard->vkCode == 'D') {
+					inp = KEY_STRAFE_R;
+				}
+			}
+
 			if (inp)
 			{
 				switch (wParam)
@@ -940,6 +985,14 @@ BOOL InitializeInput(void)
 void DG_ReadInput(void)
 {
 	static unsigned char prev_input_buffer[INPUT_BUFFER_LEN];
+
+	// Debug print the previous state
+	printf("Previous buffer: ");
+	for (int i = 0; prev_input_buffer[i]; i++) {
+		printf("%d ", prev_input_buffer[i]);
+	}
+	printf("\n");
+
 	memcpy(prev_input_buffer, input_buffer, INPUT_BUFFER_LEN);
 	memset(input_buffer, '\0', INPUT_BUFFER_LEN);
 	memset(event_buffer, '\0', 2u * (size_t)EVENT_BUFFER_LEN);
@@ -947,19 +1000,23 @@ void DG_ReadInput(void)
 
 	EnterCriticalSection(&g_inputState.inputLock);
 
-	// Debug print
-	printf("Current input count: %d\n", g_inputState.input_count);
-	for (unsigned i = 0; i < g_inputState.input_count; i++) {
-		printf("Key[%d]: %d\n", i, g_inputState.current_input_buffer[i]);
-	}
-
 	// Copy current state to input buffer
 	memcpy(input_buffer, g_inputState.current_input_buffer, g_inputState.input_count);
 	input_buffer[g_inputState.input_count] = '\0';
 
+	// Debug print the current state
+	printf("Current buffer: ");
+	for (int i = 0; input_buffer[i]; i++) {
+		printf("%d ", input_buffer[i]);
+	}
+	printf("\n");
+
 	LeaveCriticalSection(&g_inputState.inputLock);
 
-	// Construct event array (unchanged from original)
+	// Debug print event generation
+	printf("Generating events...\n");
+
+	// Construct event array
 	int i, j;
 	for (i = 0; input_buffer[i]; i++) {
 		// Skip duplicates
@@ -973,6 +1030,7 @@ void DG_ReadInput(void)
 				goto LBL_CONTINUE_1;
 		}
 		*event_buf_loc++ = 0x0100 | input_buffer[i];
+		printf("Generated press event: 0x%04X\n", 0x0100 | input_buffer[i]);
 	LBL_CONTINUE_1:;
 	}
 
@@ -983,10 +1041,20 @@ void DG_ReadInput(void)
 				goto LBL_CONTINUE_2;
 		}
 		*event_buf_loc++ = 0xFF & prev_input_buffer[i];
+		printf("Generated release event: 0x%04X\n", 0xFF & prev_input_buffer[i]);
 	LBL_CONTINUE_2:;
 	}
+
+	// Print final event buffer
+	printf("Event buffer: ");
+	for (unsigned short* p = event_buffer; *p; p++) {
+		printf("0x%04X ", *p);
+	}
+	printf("\n");
+
 	event_buf_loc = event_buffer;
 }
+
 
 void CleanupInput(void)
 {

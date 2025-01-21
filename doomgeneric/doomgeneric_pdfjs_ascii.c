@@ -113,7 +113,12 @@ int clock_gettime(const int p, struct timespec* const spec)
 #define INPUT_BUFFER_LEN 16u
 #define EVENT_BUFFER_LEN ((INPUT_BUFFER_LEN)*2u - 1u)
 
-static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████"; // static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+//static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████"; // static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+/// static const char grad[] = "  ..,,__--<<\\//~~##??██▒▒▓▓████";
+static const char grad[] = "  ··°°--==<<>>~~##@@▒▒▓▓██████";
+// Or for more geometric feel
+// static const char grad[] = "  ·-=+#×※☆★■□▣▤▥▦▧▨▩█████";
+
 static size_t grad_len;  // Excludes the null terminator, set in init
 int frame_count = 0;
 
