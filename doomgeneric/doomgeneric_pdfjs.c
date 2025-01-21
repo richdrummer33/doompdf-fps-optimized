@@ -74,14 +74,14 @@ int key_to_doomkey(int key)
 
 // ==================== SHADING ====================
 // =================================================
-// Pre-computed ASCII shading LUT
-// Single-byte ASCII shading characters from lightest to darkest
-static const char BLOCK_CHARS[4] = {'-', '?', '%', '#'}; // Single-byte ASCII chars
-
-static uint8_t *ascii_buffer = NULL;
+static uint8_t *output_buffer = NULL;
 static size_t ascii_buffer_size = 0;
 static uint32_t last_frame_time = 0;
 static const uint32_t TARGET_FRAME_TIME = 33; // ~30 FPS target
+
+// Pre-computed ASCII shading LUT
+// Single-byte ASCII shading characters from lightest to darkest
+static const char BLOCK_CHARS[4] = {'-', '?', '%', '#'}; // Single-byte ASCII chars
 
 // Fast RGB to brightness conversion using bit shifts
 #define RGB_TO_BRIGHTNESS(r, g, b) (((r) + (g) + (b)) >> 2)
@@ -92,9 +92,9 @@ void DG_Init()
 
   // Adjust buffer size to accommodate line breaks if implemented in C
   ascii_buffer_size = (DOOMGENERIC_RESX + 1) * DOOMGENERIC_RESY; // Only 1 byte per char + newlines
-  ascii_buffer = (uint8_t *)malloc(ascii_buffer_size);
+  output_buffer = (uint8_t *)malloc(ascii_buffer_size);
 
-  if (!ascii_buffer)
+  if (!output_buffer)
   {
     printf("Failed to allocate ASCII buffer.\n");
     exit(1);
@@ -103,8 +103,8 @@ void DG_Init()
   // Pre-warm the buffer with spaces and newlines
   for (int y = 0; y < DOOMGENERIC_RESY; y++)
   {
-    memset(&ascii_buffer[y * (DOOMGENERIC_RESX + 1)], 0, DOOMGENERIC_RESX);
-    ascii_buffer[y * (DOOMGENERIC_RESX + 1) + DOOMGENERIC_RESX] = '\n';
+    memset(&output_buffer[y * (DOOMGENERIC_RESX + 1)], 0, DOOMGENERIC_RESX);
+    output_buffer[y * (DOOMGENERIC_RESX + 1) + DOOMGENERIC_RESX] = '\n';
   }
 }
 
@@ -122,7 +122,7 @@ void DG_DrawFrame()
 
   // Convert framebuffer to ASCII art on the C side
   const uint32_t *src = (uint32_t *)DG_ScreenBuffer;
-  uint8_t *dst = ascii_buffer;
+  uint8_t *dst = output_buffer;
 
   for (int y = 0; y < SCREENHEIGHT; y += SCREENHEIGHT / DOOMGENERIC_RESY)
   {
@@ -158,7 +158,7 @@ void DG_DrawFrame()
         }
 
         // 2. Update ASCII frame
-        update_ascii_frame($0, $1, $2, $3); }, ascii_buffer, ascii_buffer_size, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+        update_ascii_frame($0, $1, $2, $3); }, output_buffer, ascii_buffer_size, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 }
 
 // ==================== MAIN ====================

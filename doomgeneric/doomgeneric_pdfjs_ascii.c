@@ -20,6 +20,7 @@
 #include "i_system.h"
 
 #include <ctype.h>
+#include <emscripten.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -28,9 +29,13 @@
 
 #define WIN32
 #if defined(_WIN32) || defined(WIN32)
+
 #define OS_WINDOWS
 #define WIN32_LEAN_AND_MEAN
+#define FRAME_LIMITING
+// #define DOUBLE_CHAR_ASPECT
 // #define USE_COLOR
+
 #include <windows.h>
 #else
 #include <sys/ioctl.h>
@@ -50,7 +55,7 @@
 			winError(format); \
 	} while (0)
 
-static void winError(char *const format)
+static void winError(char* const format)
 {
 	LPVOID lpMsgBuf;
 	const DWORD dw = GetLastError();
@@ -70,11 +75,11 @@ struct timespec {
 	long tv_sec;
 	long tv_nsec;
 };
-int clock_gettime(const int p, struct timespec *const spec)
+int clock_gettime(const int p, struct timespec* const spec)
 {
 	(void)p;
 	__int64 wintime;
-	GetSystemTimeAsFileTime((FILETIME *)&wintime);
+	GetSystemTimeAsFileTime((FILETIME*)&wintime);
 	wintime -= 116444736000000000ll;
 	spec->tv_sec = wintime / 10000000ll;
 	spec->tv_nsec = wintime % 10000000ll * 100;
@@ -105,13 +110,15 @@ int clock_gettime(const int p, struct timespec *const spec)
 		*(buf)++ = '0' + (byte) % 10u;       \
 	} while (0)
 
-// #define GRAD_LEN 70u // RB replaced with static field
+#define GRAD_LEN 4u
 #define INPUT_BUFFER_LEN 16u
 #define EVENT_BUFFER_LEN ((INPUT_BUFFER_LEN)*2u - 1u)
 
 static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████"; // static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
 static size_t grad_len;  // Excludes the null terminator, set in init
 int frame_count = 0;
+
+uint32_t start_time; // rb
 
 struct color_t {
 	uint32_t b : 8;
@@ -120,13 +127,13 @@ struct color_t {
 	uint32_t a : 8;
 };
 
-static char *output_buffer;
+static char* output_buffer;
 static size_t output_buffer_size;
 static struct timespec ts_init;
 
 static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static uint16_t event_buffer[EVENT_BUFFER_LEN];
-static uint16_t *event_buf_loc;
+static uint16_t* event_buf_loc;
 
 void DG_AtExit(void)
 {
@@ -150,8 +157,7 @@ void DG_AtExit(void)
 
 void DG_Init()
 {
-	grad_len = strlen(grad); // RB for pixel-ascii list sizing
-
+	start_time = get_time();
 #ifdef OS_WINDOWS
 	const HANDLE hOutputHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 	WINDOWS_CALL(hOutputHandle == INVALID_HANDLE_VALUE, "DG_Init: %s");
@@ -179,8 +185,8 @@ void DG_Init()
 	 * SGR clear code: \033[0m (length 4)
 	 */
 #ifdef USE_COLOR 
-	// 21u represents the maximum number of bytes needed per pixel for the ASCII color escape sequence
-	// +4u is for the start/end color-escape sequences + newline 
+	 // 21u represents the maximum number of bytes needed per pixel for the ASCII color escape sequence
+	 // +4u is for the start/end color-escape sequences + newline 
 	output_buffer_size = 21u * DOOMGENERIC_RESX * DOOMGENERIC_RESY + DOOMGENERIC_RESY + 4u;
 #else
 	 // RB: orig is 4 bytes per "pixel" for regular no-color ascii
@@ -198,8 +204,8 @@ static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
 
 void DG_DrawFrame()
-{    
-// Clear screen every frame in Windows
+{
+	// Clear screen every frame in Windows
 #ifdef OS_WINDOWS
 	printf("Clear\n");
 	system("cls");  // Add this
@@ -220,6 +226,14 @@ void DG_DrawFrame()
 		sum_frame_time = 0; // Reset accumulator
 	}
 
+	// Frame-rate Limiting
+#ifdef FRAME_LIMITING
+	if (frame_time < TARGET_FRAME_TIME) {
+		return;
+	}
+#endif
+	last_frame_time = current_time;
+
 	/* Clear screen if first frame */
 	static int first_frame = 0;
 	if (first_frame == 1) {
@@ -232,14 +246,14 @@ void DG_DrawFrame()
 	uint32_t color = 0xFFFFFF00;
 #endif
 	unsigned row, col;
-	struct color_t *pixel = (struct color_t *)DG_ScreenBuffer;
-	char *buf = output_buffer;
+	struct color_t* pixel = (struct color_t*)DG_ScreenBuffer;
+	char* buf = output_buffer;
 
 	// RB added comments
 	// Iterate through each row and column of the output resolution
-	for (row = 0; row < DOOMGENERIC_RESY; row++) 
+	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
-		for (col = 0; col < DOOMGENERIC_RESX; col++) 
+		for (col = 0; col < DOOMGENERIC_RESX; col++)
 		{
 #ifdef USE_COLOR
 			// Check if color changed from previous pixel (comparing RGB, ignoring alpha)
@@ -265,7 +279,9 @@ void DG_DrawFrame()
 			// Convert RGB to grayscale index into ASCII gradient array
 			char v_char = grad[(pixel->r + pixel->g + pixel->b) * grad_len / 765u];  // 765 = 255*3
 			*buf++ = v_char;	// Write the character
-			*buf++ = v_char;	// Write a SECOND character, cause such chars are 2x taller than their width
+#ifdef DOUBLE_CHAR_ASPECT // RB: account for char-width
+			*buf++ = v_char;	// Write a SECOND character, cause such chars are twice/double taller than their width
+#endif
 			pixel++;
 		}
 		*buf++ = '\n';           // End of row
@@ -279,11 +295,27 @@ void DG_DrawFrame()
 	*buf = 'm';
 #endif
 
-	/* move cursor to top left corner and set bold text*/
-	CALL_STDOUT(fputs("\033[;H\033[1m", stdout), "DG_DrawFrame: fputs error %d");
+	// Combine input processing and frame update
+	EM_ASM({
+		// 1. Process input queue
+		// clang-format off
+		for (let key of Object.keys(pressed_keys)) {
+			key_queue.push([key, !!pressed_keys[key]]);
+			if (pressed_keys[key] == = 0)
+				delete pressed_keys[key];
+			if (pressed_keys[key] == = 2)
+				pressed_keys[key] = 0;
+			// clang-format on
+	}
 
-	/* flush output buffer */
-	CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
+	// 2. Update ASCII frame
+	update_ascii_frame($0, $1, $2, $3); }, output_buffer, output_buffer_size, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+}
+
+	/* doom-ascii move cursor to top left corner and set bold text*/
+	// CALL_STDOUT(fputs("\033[;H\033[1m", stdout), "DG_DrawFrame: fputs error %d
+	/* doom-ascii flush output buffer */
+	// CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
 
 	/* clear output buffer */
 	memset(output_buffer, '\0', buf - output_buffer + 1u);
@@ -302,13 +334,20 @@ void DG_SleepMs(const uint32_t ms)
 #endif
 }
 
+// pdf-js implementation
+uint32_t get_time()
+{
+	return EM_ASM_INT({
+	  return Date.now();
+		});
+}
+
 uint32_t DG_GetTicksMs()
 {
-	struct timespec ts;
-	clock_gettime(CLK, &ts);
-
-	return (ts.tv_sec - ts_init.tv_sec) * 1000 + (ts.tv_nsec - ts_init.tv_nsec) / 1000000;
+	// pdf-js implementation
+	return get_time() - start_time;
 }
+
 
 #ifdef OS_WINDOWS
 static inline unsigned char convertToDoomKey(const WORD wVirtualKeyCode, const CHAR AsciiChar)
@@ -403,7 +442,7 @@ static inline unsigned char convertToDoomKey(const WORD wVirtualKeyCode, const C
 	}
 }
 #else
-static unsigned char doomKeyIfTilda(const char **const buf, const unsigned char key)
+static unsigned char doomKeyIfTilda(const char** const buf, const unsigned char key)
 {
 	if (*((*buf) + 1) != '~')
 		return '\0';
@@ -411,7 +450,7 @@ static unsigned char doomKeyIfTilda(const char **const buf, const unsigned char 
 	return key;
 }
 
-static inline unsigned char convertCsiToDoomKey(const char **const buf)
+static inline unsigned char convertCsiToDoomKey(const char** const buf)
 {
 	switch (**buf) {
 	case 'A':
@@ -474,7 +513,7 @@ static inline unsigned char convertCsiToDoomKey(const char **const buf)
 	}
 }
 
-static inline unsigned char convertSs3ToDoomKey(const char **const buf)
+static inline unsigned char convertSs3ToDoomKey(const char** const buf)
 {
 	switch (**buf) {
 	case 'P':
@@ -490,7 +529,7 @@ static inline unsigned char convertSs3ToDoomKey(const char **const buf)
 	}
 }
 
-static inline unsigned char convertToDoomKey(const char **const buf)
+static inline unsigned char convertToDoomKey(const char** const buf)
 {
 	switch (**buf) {
 	case '\012':
@@ -512,139 +551,79 @@ static inline unsigned char convertToDoomKey(const char **const buf)
 }
 #endif
 
-void DG_ReadInput(void)
+int DG_GetKey(int* pressed, unsigned char* doomKey)
 {
-	static unsigned char prev_input_buffer[INPUT_BUFFER_LEN];
+	int key_data = EM_ASM_INT({
+		// clang-format off
+		if (key_queue.length == = 0)
+		  return 0;
+		let key_data = key_queue.shift();
+		let key = key_data[0];
+		let pressed = key_data[1];
+		return (pressed << 8) | key;
+		// clang-format on
+		});
 
-	memcpy(prev_input_buffer, input_buffer, INPUT_BUFFER_LEN);
-	memset(input_buffer, '\0', INPUT_BUFFER_LEN);
-	memset(event_buffer, '\0', 2u * (size_t)EVENT_BUFFER_LEN);
-	event_buf_loc = event_buffer;
-#ifdef OS_WINDOWS
-	const HANDLE hInputHandle = GetStdHandle(STD_INPUT_HANDLE);
-	WINDOWS_CALL(hInputHandle == INVALID_HANDLE_VALUE, "DG_ReadInput: %s");
-
-	/* Disable canonical mode */
-	DWORD old_mode, new_mode;
-	WINDOWS_CALL(!GetConsoleMode(hInputHandle, &old_mode), "DG_ReadInput: %s");
-	new_mode = old_mode;
-	new_mode &= ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
-	WINDOWS_CALL(!SetConsoleMode(hInputHandle, new_mode), "DG_ReadInput: %s");
-
-	DWORD event_cnt;
-	WINDOWS_CALL(!GetNumberOfConsoleInputEvents(hInputHandle, &event_cnt), "DG_ReadInput: %s");
-
-	/* ReadConsole is blocking so must manually process events */
-	unsigned input_count = 0;
-	if (event_cnt) {
-		INPUT_RECORD input_records[32];
-		WINDOWS_CALL(!ReadConsoleInput(hInputHandle, input_records, 32, &event_cnt), "DG_ReadInput: %s");
-
-		DWORD i;
-		for (i = 0; i < event_cnt; i++) {
-			if (input_records[i].Event.KeyEvent.bKeyDown && input_records[i].EventType == KEY_EVENT) {
-				unsigned char inp = convertToDoomKey(input_records[i].Event.KeyEvent.wVirtualKeyCode, input_records[i].Event.KeyEvent.uChar.AsciiChar);
-				if (inp) {
-					input_buffer[input_count++] = inp;
-					if (input_count == INPUT_BUFFER_LEN - 1u)
-						break;
-				}
-			}
-		}
-	}
-
-	WINDOWS_CALL(!SetConsoleMode(hInputHandle, old_mode), "DG_ReadInput: %s");
-#else /* defined(OS_WINDOWS) */
-	static char raw_input_buffer[INPUT_BUFFER_LEN];
-	struct termios oldt, newt;
-
-	memset(raw_input_buffer, '\0', INPUT_BUFFER_LEN);
-
-	/* Disable canonical mode */
-	CALL(tcgetattr(STDIN_FILENO, &oldt), "DG_DrawFrame: tcgetattr error %d");
-	newt = oldt;
-	newt.c_lflag &= ~(ICANON);
-	newt.c_cc[VMIN] = 0;
-	newt.c_cc[VTIME] = 0;
-	CALL(tcsetattr(STDIN_FILENO, TCSANOW, &newt), "DG_DrawFrame: tcsetattr error %d");
-
-	CALL(read(2, raw_input_buffer, INPUT_BUFFER_LEN - 1u) < 0, "DG_DrawFrame: read error %d");
-
-	CALL(tcsetattr(STDIN_FILENO, TCSANOW, &oldt), "DG_DrawFrame: tcsetattr error %d");
-
-	/* Flush input buffer to prevent read of previous unread input */
-	CALL(tcflush(STDIN_FILENO, TCIFLUSH), "DG_DrawFrame: tcflush error %d");
-
-	/* create input buffer */
-	const char *raw_input_buf_loc = raw_input_buffer;
-	unsigned char *input_buf_loc = input_buffer;
-	while (*raw_input_buf_loc) {
-		const unsigned char inp = convertToDoomKey(&raw_input_buf_loc);
-		if (!inp)
-			break;
-		*input_buf_loc++ = inp;
-		raw_input_buf_loc++;
-	}
-#endif
-	/* construct event array */
-	int i, j;
-	for (i = 0; input_buffer[i]; i++) {
-		/* skip duplicates */
-		for (j = i + 1; input_buffer[j]; j++) {
-			if (input_buffer[i] == input_buffer[j])
-				goto LBL_CONTINUE_1;
-		}
-
-		/* pressed events */
-		for (j = 0; prev_input_buffer[j]; j++) {
-			if (input_buffer[i] == prev_input_buffer[j])
-				goto LBL_CONTINUE_1;
-		}
-		*event_buf_loc++ = 0x0100 | input_buffer[i];
-
-	LBL_CONTINUE_1:;
-	}
-
-	/* depressed events */
-	for (i = 0; prev_input_buffer[i]; i++) {
-		for (j = 0; input_buffer[j]; j++) {
-			if (prev_input_buffer[i] == input_buffer[j])
-				goto LBL_CONTINUE_2;
-		}
-		*event_buf_loc++ = 0xFF & prev_input_buffer[i];
-
-	LBL_CONTINUE_2:;
-	}
-
-	event_buf_loc = event_buffer;
-}
-
-int DG_GetKey(int *const pressed, unsigned char *const doomKey)
-{
-	if (event_buf_loc == NULL || *event_buf_loc == 0)
+	if (key_data == 0)
 		return 0;
 
-	*pressed = *event_buf_loc >> 8;
-	*doomKey = *event_buf_loc & 0xFF;
-	event_buf_loc++;
+	*pressed = key_data >> 8;
+	*doomKey = key_data & 0xFF;
 	return 1;
 }
 
-void DG_SetWindowTitle(const char *const title)
+// Called FROM pdf js to get codes on press
+int key_to_doomkey(int key)
 {
+	if (key == 97) // a
+		return KEY_LEFTARROW;
+	if (key == 100) // d
+		return KEY_RIGHTARROW;
+	if (key == 119) // w
+		return KEY_UPARROW;
+	if (key == 115) // s
+		return KEY_DOWNARROW;
+	if (key == 113) // q
+		return KEY_ESCAPE;
+	if (key == 122) // z
+		return KEY_ENTER;
+	if (key == 101) // e
+		return KEY_USE;
+	if (key == 32) //<space>
+		return KEY_FIRE;
+	if (key == 109) //,
+		return KEY_TAB;
+	if (key == 95) //_
+		return KEY_RSHIFT;
+	return tolower(key);
+}
+
+void DG_SetWindowTitle(const char* const title)
+{
+	// title = "dum.exe";
 	CALL_STDOUT(fputs("\033]2;", stdout), "DG_SetWindowTitle: fputs error %d");
 	CALL_STDOUT(fputs(title, stdout), "DG_SetWindowTitle: fputs error %d");
 	CALL_STDOUT(fputs("\033\\", stdout), "DG_SetWindowTitle: fputs error %d");
 }
 
+// pdfjs implement
 int main(int argc, char** argv)
 {
+	// N/A (implemented in c, here)
+	// EM_ASM({ create_framebuffer($0, $1); }, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+
+	EM_ASM({
+	  write_file(file_name, file_data);
+	  if (file2_data)
+	  {
+		write_file(file2_name, file2_data);
+	  }
+		});
+
 	doomgeneric_Create(argc, argv);
 
-	for (int i = 0;; i++)
-	{
-		doomgeneric_Tick();
-	}
-
+	EM_ASM({
+	  app.setInterval("_doomjs_tick()", 0);
+		});
 	return 0;
 }
