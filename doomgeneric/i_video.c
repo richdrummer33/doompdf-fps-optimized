@@ -32,6 +32,7 @@ static const char
 #include "d_main.h"
 #include "i_video.h"
 #include "z_zone.h"
+#include "i_scale.h"
 
 #include "tables.h"
 #include "doomkeys.h"
@@ -149,15 +150,20 @@ void cmap_to_rgb565(uint16_t *out, uint8_t *in, int in_pixels)
         }
     }
 }
-
 void cmap_to_fb(uint8_t *out, uint8_t *in, int in_pixels)
 {
     int i, j, k;
     struct color c;
     uint32_t pix;
     uint16_t r, g, b;
-
-    for (i = 0; i < in_pixels; i++)
+    
+    // RB ADDED: Determine step size based on scaling
+    int step = (fb_scaling == 0) ? 2 : 1;  // Skip every other pixel if half-scaling
+    
+    // RB ADDED: Adjust number of pixels to process if half-scaling
+    int pixels_to_process = (fb_scaling == 0) ? in_pixels/2 : in_pixels;
+    
+    for (i = 0; i < pixels_to_process; i++)
     {
         c = colors[*in]; /* R:8 G:8 B:8 format! */
         r = (uint16_t)(c.r >> (8 - s_Fb.red.length));
@@ -167,7 +173,9 @@ void cmap_to_fb(uint8_t *out, uint8_t *in, int in_pixels)
         pix |= g << s_Fb.green.offset;
         pix |= b << s_Fb.blue.offset;
 
-        for (k = 0; k < fb_scaling; k++)
+        // Only scale up if not in half-scale mode
+        int scale = (fb_scaling == 0) ? 1 : fb_scaling;
+        for (k = 0; k < scale; k++)
         {
             for (j = 0; j < s_Fb.bits_per_pixel / 8; j++)
             {
@@ -175,7 +183,8 @@ void cmap_to_fb(uint8_t *out, uint8_t *in, int in_pixels)
                 out++;
             }
         }
-        in++;
+        
+        in += step;  // Skip a pixel if half-scaling
     }
 }
 
@@ -227,9 +236,15 @@ void I_InitGraphics(void)
     else
     {
         fb_scaling = s_Fb.xres / SCREENWIDTH;
+#ifdef HALF_SCALE 
+        // RB added half-scale
+        fb_scaling = 0;
+        printf("I_InitGraphics: HALF SCALE (RB)");
+#else
         if (s_Fb.yres / SCREENHEIGHT < fb_scaling)
             fb_scaling = s_Fb.yres / SCREENHEIGHT;
         printf("I_InitGraphics: Auto-scaling factor: %d\n", fb_scaling);
+#endif
     }
 
     /* Allocate screen to draw to */
@@ -259,64 +274,109 @@ void I_UpdateNoBlit(void)
 {
 }
 
+/* Main function to update the frame buffer with the latest game frame
+   Takes the raw DOOM screen buffer and copies it to the hardware frame buffer
+   with proper scaling and color format conversion */
 //
 // I_FinishUpdate
 //
-
 void I_FinishUpdate(void)
 {
     int y;
     int x_offset, y_offset, x_offset_end;
-    unsigned char *line_in, *line_out;
+    unsigned char* line_in, * line_out;
 
     /* Offsets in case FB is bigger than DOOM */
     /* 600 = s_Fb heigt, 200 screenheight */
     /* 600 = s_Fb heigt, 200 screenheight */
     /* 2048 =s_Fb width, 320 screenwidth */
-    y_offset = (((s_Fb.yres - (SCREENHEIGHT * fb_scaling)) * s_Fb.bits_per_pixel / 8)) / 2;
-    x_offset = (((s_Fb.xres - (SCREENWIDTH * fb_scaling)) * s_Fb.bits_per_pixel / 8)) / 2; // XXX: siglent FB hack: /4 instead of /2, since it seems to handle the resolution in a funny way
-    // x_offset     = 0;
-    x_offset_end = ((s_Fb.xres - (SCREENWIDTH * fb_scaling)) * s_Fb.bits_per_pixel / 8) - x_offset;
 
-    /* DRAW SCREEN */
-    line_in = (unsigned char *)I_VideoBuffer;
-    line_out = (unsigned char *)DG_ScreenBuffer;
+    /* Calculate scaling and offset values for centering the game screen
+       in a potentially larger frame buffer */
+    int h = fb_scaling == 0 ? SCREENHEIGHT / 2 : (SCREENHEIGHT * fb_scaling);   // Output height (half or scaled)
+    int w = fb_scaling == 0 ? SCREENWIDTH / 2 : (SCREENWIDTH * fb_scaling);     // Output width (half or scaled)
+    
+    /* Calculate vertical and horizontal offsets to center the game screen
+       Takes into account the bits per pixel of the frame buffer */
+    y_offset = fb_scaling == 0 ? 
+        0 : 
+        (((s_Fb.yres - h) * s_Fb.bits_per_pixel / 8)) / 2;  // Center vertically
+    x_offset = fb_scaling == 0 ? 
+        0 : 
+        (((s_Fb.xres - w) * s_Fb.bits_per_pixel / 8)) / 2;  // Center horizontally
+    x_offset_end = fb_scaling == 0 ?
+        0 : 
+        ((s_Fb.xres - w) * s_Fb.bits_per_pixel / 8) - x_offset; // Remaining padding after each line
 
+    /* Set up pointers for the copy operation */
+    line_in = (unsigned char*)I_VideoBuffer;     // Source: DOOM's render buffer
+    line_out = (unsigned char*)DG_ScreenBuffer;  // Destination: Hardware frame buffer
+
+    /* Main drawing loop - processes each line of the screen */
     y = SCREENHEIGHT;
-
+    int scale = fb_scaling > 0 ? fb_scaling : 1;  // Determine scaling factor (minimum 1)
     while (y--)
     {
-        int i;
-        for (i = 0; i < fb_scaling; i++)
+        // RB added if for half scale
+        if (fb_scaling == 0)
         {
-            line_out += x_offset;
+            // Only process every other line for half-scaling
+            if (y % 2 == 0)
+            {
+                line_out += x_offset;
 #ifdef CMAP256
-            if (fb_scaling == 1)
-            {
-                memcpy(line_out, line_in, SCREENWIDTH); /* fb_width is bigger than Doom SCREENWIDTH... */
-            }
-            else
-            {
-                int j;
-
-                for (j = 0; j < SCREENWIDTH; j++)
+                // Need to implement half-scaling horizontally
+                for (int j = 0; j < SCREENWIDTH; j += 2)
                 {
-                    int k;
-                    for (k = 0; k < fb_scaling; k++)
+                    line_out[j / 2] = line_in[j];  // Take every other pixel
+                }
+#else
+                // Need to modify cmap_to_fb to handle half-scaling
+                cmap_to_fb((void*)line_out, (void*)line_in, SCREENWIDTH);
+#endif
+                line_out += (w * (s_Fb.bits_per_pixel / 8)) + x_offset_end;
+            }
+        }
+        else
+        {
+            /* For each input line, we may need to write multiple output lines when scaling */
+            for (int i = 0; i < scale; i++)
+            {
+                line_out += x_offset;  // Skip to the centered position
+
+#ifdef CMAP256
+/* 256-color palette mode */
+                if (fb_scaling == 1)
+                {
+                    /* Direct 1:1 copy for unscaled output */
+                    memcpy(line_out, line_in, SCREENWIDTH);
+                }
+                else
+                {
+                    /* Scale each pixel horizontally by duplicating it */
+                    for (j = 0; j < SCREENWIDTH; j++)
                     {
-                        line_out[j * fb_scaling + k] = line_in[j];
+                        for (k = 0; k < fb_scaling; k++)
+                        {
+                            line_out[j * fb_scaling + k] = line_in[j];
+                        }
                     }
                 }
-            }
 #else
-            // cmap_to_rgb565((void*)line_out, (void*)line_in, SCREENWIDTH);
-            cmap_to_fb((void *)line_out, (void *)line_in, SCREENWIDTH);
+/* True color mode - convert from palette indices to actual RGB colors */
+                cmap_to_fb((void*)line_out, (void*)line_in, SCREENWIDTH);
 #endif
-            line_out += (SCREENWIDTH * fb_scaling * (s_Fb.bits_per_pixel / 8)) + x_offset_end;
+
+                /* Move output pointer to next line, accounting for frame buffer width
+                   and horizontal padding */
+                line_out += (w * (s_Fb.bits_per_pixel / 8)) + x_offset_end;
+            }
         }
+
         line_in += SCREENWIDTH;
     }
 
+    /* Signal the display driver to show the updated frame */
     DG_DrawFrame();
 }
 

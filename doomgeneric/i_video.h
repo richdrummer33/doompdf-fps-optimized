@@ -23,6 +23,8 @@
 
 // Screen width and height.
 
+
+// ######## RB HALVED VALS ########
 #define SCREENWIDTH 320
 #define SCREENHEIGHT 200
 

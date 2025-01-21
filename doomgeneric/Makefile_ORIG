@@ -1,8 +1,22 @@
-CC=gcc  # or another Windows-compatible compiler
+################################################################
+#
+# $Id:$
+#
+# $Log:$
+#
+
+ifeq ($(V),1)
+	VB=''
+else
+	VB=@
+endif
+
+
+CC=clang  # gcc or g++
 CFLAGS+=-ggdb3 -Os
 LDFLAGS+=-Wl,--gc-sections
-CFLAGS+=-ggdb3 -Wall -DNORMALUNIX -DSNDSERV -D_DEFAULT_SOURCE # -DUSEASM
-LIBS+=-lm -lc -lwinmm
+CFLAGS+=-ggdb3 -Wall -DNORMALUNIX -DLINUX -DSNDSERV -D_DEFAULT_SOURCE # -DUSEASM
+LIBS+=-lm -lc -lX11
 
 # subdirectory for objects
 OBJDIR=build
@@ -14,26 +28,27 @@ OBJS += $(addprefix $(OBJDIR)/, $(SRC_DOOM))
 all:	 $(OUTPUT)
 
 clean:
-    rm -rf $(OBJDIR)
-    rm -f $(OUTPUT)
-    rm -f $(OUTPUT).gdb
-    rm -f $(OUTPUT).map
+	rm -rf $(OBJDIR)
+	rm -f $(OUTPUT)
+	rm -f $(OUTPUT).gdb
+	rm -f $(OUTPUT).map
 
 $(OUTPUT):	$(OBJS)
-    @echo [Linking $@]
-    $(VB)$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) \
-    -o $(OUTPUT) $(LIBS) -Wl,-Map,$(OUTPUT).map
-    @echo [Size]
-    -$(CROSS_COMPILE)size $(OUTPUT)
+	@echo [Linking $@]
+	$(VB)$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) \
+	-o $(OUTPUT) $(LIBS) -Wl,-Map,$(OUTPUT).map
+	@echo [Size]
+	-$(CROSS_COMPILE)size $(OUTPUT)
 
 $(OBJS): | $(OBJDIR)
 
 $(OBJDIR):
-    mkdir -p $(OBJDIR)
+	mkdir -p $(OBJDIR)
 
 $(OBJDIR)/%.o:	%.c
-    @echo [Compiling $<]
-    $(VB)$(CC) $(CFLAGS) -c $< -o $@
+	@echo [Compiling $<]
+	$(VB)$(CC) $(CFLAGS) -c $< -o $@
 
 print:
-    @echo OBJS: $(OBJS)
+	@echo OBJS: $(OBJS)
+
