@@ -193,6 +193,77 @@ void DG_Init()
 	memset(input_buffer, '\0', INPUT_BUFFER_LEN);
 }
 
+
+void simulate_key_combo(WORD key1, WORD key2) {
+	// Press key1 (e.g., VK_CONTROL for Ctrl)
+	INPUT inputs[4] = { 0 };
+	inputs[0].type = INPUT_KEYBOARD;
+	inputs[0].ki.wVk = key1;
+
+	// Press key2 (e.g., 'V' for Ctrl+V)
+	inputs[1].type = INPUT_KEYBOARD;
+	inputs[1].ki.wVk = key2;
+
+	// Release key2
+	inputs[2].type = INPUT_KEYBOARD;
+	inputs[2].ki.wVk = key2;
+	inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+
+	// Release key1
+	inputs[3].type = INPUT_KEYBOARD;
+	inputs[3].ki.wVk = key1;
+	inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+
+	// Send the inputs
+	SendInput(4, inputs, sizeof(INPUT));
+}
+
+// Function to copy text to the clipboard
+void copy_to_clipboard(const char* text) {
+	// Open the clipboard
+	if (!OpenClipboard(NULL)) {
+		fprintf(stderr, "Failed to open clipboard.\n");
+		return;
+	}
+
+	// Empty the clipboard
+	if (!EmptyClipboard()) {
+		fprintf(stderr, "Failed to empty clipboard.\n");
+		CloseClipboard();
+		return;
+	}
+
+	// Get the length of the text
+	size_t len = strlen(text) + 1;
+
+	// Allocate global memory for the text
+	HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+	if (!hMem) {
+		fprintf(stderr, "Failed to allocate global memory.\n");
+		CloseClipboard();
+		return;
+	}
+
+	// Lock the global memory and copy the text
+	void* ptr = GlobalLock(hMem);
+	if (ptr) {
+		memcpy(ptr, text, len);
+		GlobalUnlock(hMem);
+
+		// Set the clipboard data
+		if (!SetClipboardData(CF_TEXT, hMem)) {
+			fprintf(stderr, "Failed to set clipboard data.\n");
+		}
+	}
+	else {
+		fprintf(stderr, "Failed to lock global memory.\n");
+		GlobalFree(hMem);
+	}
+
+	// Close the clipboard
+	CloseClipboard();
+}
+
 static uint32_t sum_frame_time = 0;
 static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
@@ -279,11 +350,17 @@ void DG_DrawFrame()
 	*buf = 'm';
 #endif
 
-	/* move cursor to top left corner and set bold text*/
-	CALL_STDOUT(fputs("\033[;H\033[1m", stdout), "DG_DrawFrame: fputs error %d");
+	Sleep(200);
+	copy_to_clipboard(output_buffer);
+	Sleep(200);
+	simulate_key_combo(VK_CONTROL, 'A'); // Simulates Ctrl+A
+	Sleep(200);
+	simulate_key_combo(VK_CONTROL, 'V'); // Simulates Ctrl+V
 
+	/* move cursor to top left corner and set bold text*/
+	// CALL_STDOUT(fputs("\033[;H\033[1m", stdout), "DG_DrawFrame: fputs error %d");
 	/* flush output buffer */
-	CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
+	// CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
 
 	/* clear output buffer */
 	memset(output_buffer, '\0', buf - output_buffer + 1u);
