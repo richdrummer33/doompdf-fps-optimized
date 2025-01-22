@@ -30,6 +30,7 @@
 #if defined(_WIN32) || defined(WIN32)
 #define OS_WINDOWS
 #define WIN32_LEAN_AND_MEAN
+// #define SOBEL_EDGE
 // #define USE_COLOR
 #include <windows.h>
 #else
@@ -64,6 +65,8 @@ static void winError(char *const format)
 		0, NULL);
 	I_Error(format, lpMsgBuf);
 }
+
+const int TARGET_FRAMETIME = 60;
 
 /* Modified from https://stackoverflow.com/a/31335254 */
 struct timespec {
@@ -234,10 +237,12 @@ void copy_to_clipboard(const char* text)
 		int numAttepts = 0;
 		while (!OpenClipboard(NULL))
 		{
-			Sleep(1);
+			Sleep(TARGET_FRAMETIME);
 			if (numAttepts > 10)
 				return;
+			numAttepts++;
 		}
+		printf("Clipboard  recovered!\n");
 		// return;
 	}
 
@@ -279,10 +284,64 @@ void copy_to_clipboard(const char* text)
 	CloseClipboard();
 }
 
+uint32_t simple_gradient(int x, int y, uint32_t* pixels, int width, int height) {
+	uint32_t intensity = (pixels[y * width + x] & 0xFF) +
+		((pixels[y * width + x] >> 8) & 0xFF) +
+		((pixels[y * width + x] >> 16) & 0xFF);
+
+	// Neighbor (to the right)
+	uint32_t neighbor_intensity = (x + 1 < width) ?
+		((pixels[y * width + x + 1] & 0xFF) +
+			((pixels[y * width + x + 1] >> 8) & 0xFF) +
+			((pixels[y * width + x + 1] >> 16) & 0xFF)) :
+		intensity;
+
+	// Compute the difference
+	return abs(intensity - neighbor_intensity);
+}
+
+
+
+int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
+	// Sobel kernels
+	int Gx[3][3] = {
+		{-1, 0, 1},
+		{-2, 0, 2},
+		{-1, 0, 1}
+	};
+	int Gy[3][3] = {
+		{-1, -2, -1},
+		{ 0,  0,  0},
+		{ 1,  2,  1}
+	};
+
+	int gx = 0, gy = 0;
+
+	// Iterate over the 3x3 neighborhood
+	for (int i = -1; i <= 1; i++) {
+		for (int j = -1; j <= 1; j++) {
+			int nx = x + i;
+			int ny = y + j;
+
+			// Ensure pixel is within bounds
+			if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+				uint32_t pixel = pixels[ny * width + nx];
+				int intensity = (pixel & 0xFF) + ((pixel >> 8) & 0xFF) + ((pixel >> 16) & 0xFF);
+				intensity /= 3; // Grayscale intensity
+
+				gx += Gx[i + 1][j + 1] * intensity;
+				gy += Gy[i + 1][j + 1] * intensity;
+			}
+		}
+	}
+
+	// Compute gradient magnitude
+	return sqrt(gx * gx + gy * gy);
+}
+
 static uint32_t sum_frame_time = 0;
 static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
-const int TARGET_FRAMETIME = 40;
 
 void DG_DrawFrame()
 {    
@@ -296,10 +355,10 @@ void DG_DrawFrame()
 	uint32_t frame_time = current_time - last_time;
 	last_time = current_time;
 
-
 	// Sleep the ms to make const fps
 	if (frame_time < TARGET_FRAMETIME)
 	{
+		printf("sleep!!!\n");
 		Sleep(TARGET_FRAMETIME - frame_time);
 	}
 
@@ -335,6 +394,11 @@ void DG_DrawFrame()
 	{
 		for (col = 0; col < DOOMGENERIC_RESX; col++) 
 		{
+
+#ifdef SOBEL_EDGE
+			uint32_t edge_pixel = sobel_operator(col, row, buf, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+#endif
+
 #ifdef USE_COLOR
 			// Check if color changed from previous pixel (comparing RGB, ignoring alpha)
 			if ((color ^ *(uint32_t*)pixel) & 0x00FFFFFF) {
@@ -357,6 +421,12 @@ void DG_DrawFrame()
 			}
 #endif
 			// Convert RGB to grayscale index into ASCII gradient array
+#ifdef SOBEL_EDGE
+			// Apply Sobel edge intensity to each color channel
+			pixel->r = (pixel->r >> 1) + (edge_pixel >> 1);
+			pixel->g = (pixel->g >> 1) + (edge_pixel >> 1);
+			pixel->b = (pixel->b >> 1) + (edge_pixel >> 1);
+#endif
 			char v_char = grad[(pixel->r + pixel->g + pixel->b) * grad_len / 765u];  // 765 = 255*3
 			*buf++ = v_char;	// Write the character
 			*buf++ = v_char;	// Write a SECOND character, cause such chars are 2x taller than their width
@@ -373,7 +443,7 @@ void DG_DrawFrame()
 	*buf = 'm';
 #endif
 
-	//Sleep(1);
+	Sleep(1);
 	copy_to_clipboard(output_buffer);
 	Sleep(1);
 	simulate_key_combo(VK_CONTROL, 'A'); // Simulates Ctrl+A
@@ -987,11 +1057,11 @@ void DG_ReadInput(void)
 	static unsigned char prev_input_buffer[INPUT_BUFFER_LEN];
 
 	// Debug print the previous state
-	printf("Previous buffer: ");
+	/*printf("Previous buffer: ");
 	for (int i = 0; prev_input_buffer[i]; i++) {
 		printf("%d ", prev_input_buffer[i]);
 	}
-	printf("\n");
+	printf("\n");*/
 
 	memcpy(prev_input_buffer, input_buffer, INPUT_BUFFER_LEN);
 	memset(input_buffer, '\0', INPUT_BUFFER_LEN);
@@ -1005,16 +1075,13 @@ void DG_ReadInput(void)
 	input_buffer[g_inputState.input_count] = '\0';
 
 	// Debug print the current state
-	printf("Current buffer: ");
+	/*printf("Current buffer: ");
 	for (int i = 0; input_buffer[i]; i++) {
 		printf("%d ", input_buffer[i]);
 	}
-	printf("\n");
+	printf("\n");*/
 
 	LeaveCriticalSection(&g_inputState.inputLock);
-
-	// Debug print event generation
-	printf("Generating events...\n");
 
 	// Construct event array
 	int i, j;
@@ -1030,7 +1097,7 @@ void DG_ReadInput(void)
 				goto LBL_CONTINUE_1;
 		}
 		*event_buf_loc++ = 0x0100 | input_buffer[i];
-		printf("Generated press event: 0x%04X\n", 0x0100 | input_buffer[i]);
+		// printf("Generated press event: 0x%04X\n", 0x0100 | input_buffer[i]);
 	LBL_CONTINUE_1:;
 	}
 
@@ -1041,16 +1108,16 @@ void DG_ReadInput(void)
 				goto LBL_CONTINUE_2;
 		}
 		*event_buf_loc++ = 0xFF & prev_input_buffer[i];
-		printf("Generated release event: 0x%04X\n", 0xFF & prev_input_buffer[i]);
+		// printf("Generated release event: 0x%04X\n", 0xFF & prev_input_buffer[i]);
 	LBL_CONTINUE_2:;
 	}
 
 	// Print final event buffer
-	printf("Event buffer: ");
+	/*printf("Event buffer: ");
 	for (unsigned short* p = event_buffer; *p; p++) {
 		printf("0x%04X ", *p);
 	}
-	printf("\n");
+	printf("\n");*/
 
 	event_buf_loc = event_buffer;
 }
