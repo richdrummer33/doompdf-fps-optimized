@@ -18,6 +18,7 @@
 #include "doomgeneric.h"
 #include "doomkeys.h"
 #include "i_system.h"
+#include "i_video.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -27,10 +28,14 @@
 #include <string.h>
 
 #define WIN32
+
 #if defined(_WIN32) || defined(WIN32)
 #define OS_WINDOWS
 #define WIN32_LEAN_AND_MEAN
 // #define USE_COLOR
+// Display modes
+// #define DISP_CLIPBOARD
+#define DISP_NOTEPAD_PP // notepad++ mode
 #include <windows.h>
 #else
 #include <sys/ioctl.h>
@@ -38,6 +43,22 @@
 #include <time.h>
 #include <unistd.h>
 #endif
+
+#ifdef DISP_NOTEPAD_PP
+#define SCI_SETTEXT 2181
+#define SCI_GOTOLINE 2024
+
+// Optional: More useful Scintilla messages you might want
+#define SCI_GETTEXTLENGTH 2182
+#define SCI_SETREADONLY 2171
+#define SCI_GETREADONLY 2140
+#define SCI_CLEARALL 2004
+#define SCI_GETLENGTH 2006
+#define SCI_SELECTALL 2013
+#define SCI_DOCUMENTEND 2318
+#define SCI_DOCUMENTSTART 2316
+#endif // DISP_NOTEPAD_PP
+
 
 #ifdef OS_WINDOWS
 #include <consoleapi2.h> // rb for console/cmd cursor pos top-left
@@ -124,11 +145,29 @@ static char *output_buffer;
 static size_t output_buffer_size;
 static struct timespec ts_init;
 
+static uint32_t sum_frame_time = 0;
+static uint32_t last_time = 0;
+const int fps_log_interval = 60; // frames
+const int TARGET_FRAMETIME = 50; // 20 FPS
+
 static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static uint16_t event_buffer[EVENT_BUFFER_LEN];
 static uint16_t *event_buf_loc;
 
 DWORD pressedKey; // RB for global KB hooks
+
+// Global renderer instance for DOOM
+#ifdef  DISP_NOTEPAD_PP
+typedef struct {
+	HWND notepad;
+	HWND scintilla;
+	char* buffer;
+	size_t buffer_size;
+} AsciiRenderer;
+
+static AsciiRenderer* g_renderer = NULL;
+#endif s
+
 
 void DG_AtExit(void)
 {
@@ -221,9 +260,7 @@ void simulate_key_combo(WORD key1, WORD key2) {
 }
 
 
-const int CLEAR_INTERVAL = 30;
-
-
+#ifdef DISP_CLIPBOARD
 // Function to copy text to the clipboard
 void copy_to_clipboard(const char* text) 
 {
@@ -278,11 +315,129 @@ void copy_to_clipboard(const char* text)
 	// Close the clipboard
 	CloseClipboard();
 }
+#else 
 
-static uint32_t sum_frame_time = 0;
-static uint32_t last_time = 0;
-const int fps_log_interval = 60; // frames
-const int TARGET_FRAMETIME = 40;
+HWND find_notepad_plus_plus() {
+	HWND hwnd = FindWindow(L"Notepad++", NULL);
+	if (hwnd == NULL) {
+		printf("Could not find Notepad++ window\n");
+		return NULL;
+	}
+	return hwnd;
+}
+
+// Find the Scintilla edit component within Notepad++
+HWND find_scintilla(HWND notepad_hwnd) {
+	// Notepad++ uses Scintilla as its edit component
+	HWND scintilla = FindWindowEx(notepad_hwnd, NULL, L"Scintilla", NULL);
+	if (scintilla == NULL) {
+		printf("Could not find Scintilla component\n");
+		return NULL;
+	}
+	return scintilla;
+}
+
+
+int DG_InitNotepadRenderer() {
+	printf("Initializing Notepad++ renderer...\n");
+
+	size_t width = DOOMGENERIC_RESX * 2;
+	size_t height = DOOMGENERIC_RESY;
+	size_t buffer_size = (width + 1) * height;
+#ifdef USE_COLOR
+	buffer_size += (width * height * 20);
+#endif
+	buffer_size += 100;
+
+	printf("Allocating buffer of size: %zu bytes\n", buffer_size);
+
+	g_renderer = (AsciiRenderer*)malloc(sizeof(AsciiRenderer));
+	if (!g_renderer) {
+		printf("Failed to allocate renderer structure\n");
+		return 0;
+	}
+
+	g_renderer->notepad = find_notepad_plus_plus();
+	if (!g_renderer->notepad) {
+		printf("Could not find Notepad++ window\n");
+		free(g_renderer);
+		return 0;
+	}
+
+	g_renderer->scintilla = find_scintilla(g_renderer->notepad);
+	if (!g_renderer->scintilla) {
+		printf("Could not find Scintilla component\n");
+		free(g_renderer);
+		return 0;
+	}
+
+	g_renderer->buffer = (char*)malloc(buffer_size);
+	if (!g_renderer->buffer) {
+		printf("Failed to allocate render buffer\n");
+		free(g_renderer);
+		return 0;
+	}
+
+	g_renderer->buffer_size = buffer_size;
+	memset(g_renderer->buffer, 0, buffer_size);
+
+	// Initialize render timing
+	last_time = GetTickCount();
+
+	printf("Notepad++ renderer initialized successfully\n");
+	return 1;
+}
+
+// Cleanup function - call this when shutting down DOOM
+void DG_ShutdownNotepadRenderer() {
+	if (g_renderer) {
+		if (g_renderer->buffer) {
+			free(g_renderer->buffer);
+		}
+		free(g_renderer);
+		g_renderer = NULL;
+	}
+}
+
+#endif
+
+int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
+	// Sobel kernels
+	int Gx[3][3] = {
+		{-1, 0, 1},
+		{-2, 0, 2},
+		{-1, 0, 1}
+	};
+	int Gy[3][3] = {
+		{ 1, 2, 1},
+		{ 0, 0, 0},
+		{-1,-2,-1}
+	};
+
+	int gx = 0, gy = 0;
+
+	// Iterate over the 3x3 neighborhood
+	for (int i = -1; i <= 1; i++) {
+		for (int j = -1; j <= 1; j++) {
+			int nx = x + i;
+			int ny = y + j;
+
+			// Ensure pixel is within bounds
+			if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+				uint32_t pixel = pixels[ny * width + nx];
+				int intensity = (pixel & 0xFF) + ((pixel >> 8) & 0xFF) + ((pixel >> 16) & 0xFF);
+				intensity /= 3; // Grayscale intensity
+
+				gx += Gx[i + 1][j + 1] * intensity;
+				gy += Gy[i + 1][j + 1] * intensity;
+			}
+		}
+	}
+
+	// Compute gradient magnitude
+	return sqrt(gx * gx + gy * gy);
+}
+
 
 void DG_DrawFrame()
 {    
@@ -294,8 +449,15 @@ void DG_DrawFrame()
 	
 	uint32_t current_time = DG_GetTicksMs();
 	uint32_t frame_time = current_time - last_time;
-	last_time = current_time;
 
+#ifdef DISP_NOTEPAD_PP
+	// Rate limiting for Notepad++ updates
+	DWORD current_tick = GetTickCount();
+	if (current_tick - last_time < TARGET_FRAMETIME) {
+		Sleep(1);  // Give some time back to the system
+		return;
+	}
+#endif
 
 	// Sleep the ms to make const fps
 	if (frame_time < TARGET_FRAMETIME)
@@ -303,6 +465,7 @@ void DG_DrawFrame()
 		Sleep(TARGET_FRAMETIME - frame_time);
 	}
 
+	last_time = current_time;
 	sum_frame_time += frame_time;
 	frame_count++;
 
@@ -327,7 +490,15 @@ void DG_DrawFrame()
 #endif
 	unsigned row, col;
 	struct color_t *pixel = (struct color_t *)DG_ScreenBuffer;
-	char *buf = output_buffer;
+	struct color_t* *videoPixel = (struct color_t* *)I_VideoBuffer; // If the image is scaled down in DG_ScreenBuffer, then use the original source video buffer
+
+#ifdef DISP_NOTEPAD_PP
+	// Use renderer's buffer for Notepad++
+	char* buf = g_renderer->buffer;
+#else
+	// Use regular output buffer for other modes
+	char* buf = output_buffer;
+#endif
 
 	// RB added comments
 	// Iterate through each row and column of the output resolution
@@ -335,6 +506,11 @@ void DG_DrawFrame()
 	{
 		for (col = 0; col < DOOMGENERIC_RESX; col++) 
 		{
+#ifdef HALF_SCALE
+			// sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
+#else
+			sobel_operator(col, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+#endif
 #ifdef USE_COLOR
 			// Check if color changed from previous pixel (comparing RGB, ignoring alpha)
 			if ((color ^ *(uint32_t*)pixel) & 0x00FFFFFF) {
@@ -373,20 +549,52 @@ void DG_DrawFrame()
 	*buf = 'm';
 #endif
 
-	//Sleep(1);
+#ifdef DISP_CLIPBOARD
 	copy_to_clipboard(output_buffer);
 	Sleep(1);
-	simulate_key_combo(VK_CONTROL, 'A'); // Simulates Ctrl+A
+	simulate_key_combo(VK_CONTROL, 'A');
 	Sleep(1);
-	simulate_key_combo(VK_CONTROL, 'V'); // Simulates Ctrl+V
-
-	/* move cursor to top left corner and set bold text*/
-	// CALL_STDOUT(fputs("\033[;H\033[1m", stdout), "DG_DrawFrame: fputs error %d");
-	/* flush output buffer */
-	// CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
-
-	/* clear output buffer */
+	simulate_key_combo(VK_CONTROL, 'V');
 	memset(output_buffer, '\0', buf - output_buffer + 1u);
+#elif defined(DISP_NOTEPAD_PP)
+	*buf = '\0';
+	// Send to Notepad++ with error checking
+	if (g_renderer && g_renderer->scintilla && IsWindow(g_renderer->scintilla)) {
+		// Use SendMessageTimeout instead of SendMessage
+		DWORD_PTR result;
+		if (SendMessageTimeout(g_renderer->scintilla,
+			SCI_SETTEXT,
+			0,
+			(LPARAM)g_renderer->buffer,
+			SMTO_ABORTIFHUNG | SMTO_NORMAL,
+			10000,  // 1 second timeout
+			&result) == 0) {
+			printf("\nFailed to send message to Notepad++\n");
+			printf("-----------------------------------\n\n");
+			printf(GetLastError());
+		}
+		else
+		{
+			printf("\nSent message to Notepad++!!\n");
+		}
+	}
+	else
+	{
+		printf("\nNotepad++ window or Scintilla component not found\n");
+	}
+
+	// Clear buffer
+	if (g_renderer && g_renderer->buffer) 
+	{
+		memset(g_renderer->buffer, '\0', buf - g_renderer->buffer + 1u);
+	}
+#else // TERMINAL
+	/* move cursor to top left corner and set bold text*/
+	CALL_STDOUT(fputs("\033[;H\033[1m", stdout), "DG_DrawFrame: fputs error %d");
+	/* flush output buffer */
+	CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
+	memset(output_buffer, '\0', buf - output_buffer + 1u);
+#endif
 }
 
 void DG_SleepMs(const uint32_t ms)
@@ -986,13 +1194,6 @@ void DG_ReadInput(void)
 {
 	static unsigned char prev_input_buffer[INPUT_BUFFER_LEN];
 
-	// Debug print the previous state
-	printf("Previous buffer: ");
-	for (int i = 0; prev_input_buffer[i]; i++) {
-		printf("%d ", prev_input_buffer[i]);
-	}
-	printf("\n");
-
 	memcpy(prev_input_buffer, input_buffer, INPUT_BUFFER_LEN);
 	memset(input_buffer, '\0', INPUT_BUFFER_LEN);
 	memset(event_buffer, '\0', 2u * (size_t)EVENT_BUFFER_LEN);
@@ -1004,17 +1205,7 @@ void DG_ReadInput(void)
 	memcpy(input_buffer, g_inputState.current_input_buffer, g_inputState.input_count);
 	input_buffer[g_inputState.input_count] = '\0';
 
-	// Debug print the current state
-	printf("Current buffer: ");
-	for (int i = 0; input_buffer[i]; i++) {
-		printf("%d ", input_buffer[i]);
-	}
-	printf("\n");
-
 	LeaveCriticalSection(&g_inputState.inputLock);
-
-	// Debug print event generation
-	printf("Generating events...\n");
 
 	// Construct event array
 	int i, j;
@@ -1030,7 +1221,6 @@ void DG_ReadInput(void)
 				goto LBL_CONTINUE_1;
 		}
 		*event_buf_loc++ = 0x0100 | input_buffer[i];
-		printf("Generated press event: 0x%04X\n", 0x0100 | input_buffer[i]);
 	LBL_CONTINUE_1:;
 	}
 
@@ -1041,16 +1231,8 @@ void DG_ReadInput(void)
 				goto LBL_CONTINUE_2;
 		}
 		*event_buf_loc++ = 0xFF & prev_input_buffer[i];
-		printf("Generated release event: 0x%04X\n", 0xFF & prev_input_buffer[i]);
 	LBL_CONTINUE_2:;
 	}
-
-	// Print final event buffer
-	printf("Event buffer: ");
-	for (unsigned short* p = event_buffer; *p; p++) {
-		printf("0x%04X ", *p);
-	}
-	printf("\n");
 
 	event_buf_loc = event_buffer;
 }
@@ -1072,14 +1254,27 @@ void CleanupInput(void)
 // Modified main function to handle Windows messages
 int main(int argc, char** argv)
 {
+	Sleep(1000);  // Sleep for a second to allow the console to initialize
+	printf("\n\nDOOM main\n\n");
+
 #ifdef OS_WINDOWS
 	if (!InitializeInput())
 	{
-		printf("Failed to initialize input system\n");
+		printf("\nFailed to initialize input system\n");
 		return 1;
 	}
 #endif
 
+#ifdef DISP_NOTEPAD_PP
+	Sleep(1000);  // Sleep for a second to allow the console to initialize
+	printf("\nInitialize Notepad++ renderer\n");
+	if (!DG_InitNotepadRenderer()) {
+		printf("Failed to initialize Notepad++ renderer\n");
+		return 1;
+	}
+	printf("\nNotepad++ renderer initialized!!!\n");
+	Sleep(1000);  // Sleep for a second to allow the console to initialize
+#endif
 	doomgeneric_Create(argc, argv);
 
 #ifdef OS_WINDOWS
@@ -1099,6 +1294,11 @@ int main(int argc, char** argv)
 		DG_ReadInput();  // Add this here if you can't modify doomgeneric_Tick
 		doomgeneric_Tick();
 	}
+
+#ifdef DISP_NOTEPAD_PP
+	printf("Shutdown Notepad++ renderer\n");
+	DG_ShutdownNotepadRenderer();
+#endif
 
 cleanup:
 	CleanupInput();
