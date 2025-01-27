@@ -19,21 +19,69 @@
 #ifndef __DOOMKEYS__
 #define __DOOMKEYS__
 
+// #define __RB_KEYS_OVERRIDE__ // RB Override keys. Distinguishes need for handling windows key-up/key-down events (keyup/keydown, up/down)... See "LRESULT CALLBACK LowLevelKeyboardProc(..)" in doomgeneric_ascii.c
+#ifdef __RB_KEYS_OVERRIDE__ // RB START __RB_KEYS_OVERRIDE__
+#include <winuser.rh>
+//
+// RB overriding move/interact keys for ASCII/clipboard 
+// This eliminates need for manual conversion via KB-interrupt handles [see "LRESULT CALLBACK LowLevelKeyboardProc(..)"]
+// Mapped to Windows VK codes for simplicity
+//
+
+// For DG_ReadInput in doomgeneric_ascii for pause/run (doUpdate/dontUpdate)
+#define KEY_START_UPDATE        ']'
+#define KEY_STOP_UPDATE			'['
+
+
+#define VK_NUMPAD0        0x60
+#define VK_NUMPAD1        0x61
+#define VK_NUMPAD2        0x62
+#define VK_NUMPAD3        0x63
+#define VK_NUMPAD4        0x64
+#define VK_NUMPAD5        0x65
+#define VK_NUMPAD6        0x66
+#define VK_NUMPAD7        0x67
+#define VK_NUMPAD8        0x68
+#define VK_NUMPAD9        0x69
+
+// Movement
+#define KEY_RIGHTARROW  VK_NUMPAD6   // Turn right
+#define KEY_LEFTARROW   VK_NUMPAD4   // Turn left  
+#define KEY_UPARROW     VK_NUMPAD8   // Move forward
+#define KEY_DOWNARROW   VK_NUMPAD5   // Move backward
+#define KEY_STRAFE_L    VK_NUMPAD1   // Strafe left
+#define KEY_STRAFE_R    VK_NUMPAD3   // Strafe right
+
+// Control
+#define KEY_USE         'E'          
+#define KEY_FIRE        VK_SPACE     
+#define KEY_ESCAPE      'P'          
+
+#else // RB END __RB_KEYS_OVERRIDE__
 //
 // DOOM keyboard definition.
 // This is the stuff configured by Setup.Exe.
 // Most key data are simple ascii (uppercased).
 //
+
+// Movement
 #define KEY_RIGHTARROW	0xae
 #define KEY_LEFTARROW	0xac
 #define KEY_UPARROW		0xad
 #define KEY_DOWNARROW	0xaf
 #define KEY_STRAFE_L	0xa0
 #define KEY_STRAFE_R	0xa1
+
+// Control
 #define KEY_USE			0xa2
 #define KEY_FIRE		0xa3
 #define KEY_ESCAPE		27
+
+#endif
+
+// Control
 #define KEY_ENTER		13
+
 #define KEY_TAB			9
 #define KEY_F1			(0x80+0x3b)
 #define KEY_F2			(0x80+0x3c)

@@ -99,51 +99,50 @@ int			dccount;
 // Thus a special case loop for very fast rendering can
 //  be used. It has also been used with Wolfenstein 3D.
 // 
-void R_DrawColumn (void) 
-{ 
-    int			count; 
-    byte*		dest; 
+void R_DrawColumn(void)
+{
+    int			count;
+    byte* dest;
     fixed_t		frac;
-    fixed_t		fracstep;	 
- 
-    count = dc_yh - dc_yl; 
+    fixed_t		fracstep;
+
+    count = dc_yh - dc_yl;
 
     // Zero length, column does not exceed a pixel.
-    if (count < 0) 
-	return; 
-				 
+    if (count < 0)
+        return;
+
 #ifdef RANGECHECK 
     if ((unsigned)dc_x >= SCREENWIDTH
-	|| dc_yl < 0
-	|| dc_yh >= SCREENHEIGHT) 
-	I_Error ("R_DrawColumn: %i to %i at %i", dc_yl, dc_yh, dc_x); 
+        || dc_yl < 0
+        || dc_yh >= SCREENHEIGHT)
+        I_Error("R_DrawColumn: %i to %i at %i", dc_yl, dc_yh, dc_x);
 #endif 
 
     // Framebuffer destination address.
     // Use ylookup LUT to avoid multiply with ScreenWidth.
     // Use columnofs LUT for subwindows? 
-    dest = ylookup[dc_yl] + columnofs[dc_x];  
+    dest = ylookup[dc_yl] + columnofs[dc_x];
 
     // Determine scaling,
     //  which is the only mapping to be done.
-    fracstep = dc_iscale; 
-    frac = dc_texturemid + (dc_yl-centery)*fracstep; 
+    fracstep = dc_iscale;
+    frac = dc_texturemid + (dc_yl - centery) * fracstep;
 
     // Inner loop that does the actual texture mapping,
     //  e.g. a DDA-lile scaling.
     // This is as fast as it gets.
-    do 
+    do
     {
-	// Re-map color indices from wall texture column
-	//  using a lighting/special effects LUT.
-	*dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
-	
-	dest += SCREENWIDTH; 
-	frac += fracstep;
-	
-    } while (count--); 
-} 
+        // Re-map color indices from wall texture column
+        //  using a lighting/special effects LUT.
+        *dest = dc_colormap[dc_source[(frac >> FRACBITS) & 127]];
 
+        dest += SCREENWIDTH;
+        frac += fracstep;
+
+    } while (count--);
+}
 
 
 // UNUSED.

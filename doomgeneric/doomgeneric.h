@@ -4,14 +4,23 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#define HALF_SCALE// RB For Ascii or PDF
+
 // ######## RB HALVED VALUES ######## 
 #ifndef DOOMGENERIC_RESX
+#ifdef HALF_SCALE
+#define DOOMGENERIC_RESX 160
+#else
 #define DOOMGENERIC_RESX 160 
-#define HALF_SCALE// RB For Ascii or PDF
-#endif
+#endif // HALF_SCALE
+#endif // DOOMGENERIC_RESX
 
 #ifndef DOOMGENERIC_RESY
+#ifdef HALF_SCALE
 #define DOOMGENERIC_RESY 100
+#else
+#define DOOMGENERIC_RESY 200
+#endif
 #endif
 
 // #define DOUBLE_SCALE

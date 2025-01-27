@@ -37,8 +37,12 @@
 
 
 
+
 #define MINZ				(FRACUNIT*4)
 #define BASEYCENTER			100
+
+// RB Make enemies dark
+// #define DARKEN_ENEMIES
 
 //void R_DrawColumn (void);
 //void R_DrawFuzzColumn (void);
@@ -593,6 +597,23 @@ void R_ProjectSprite (mobj_t* thing)
 
 	vis->colormap = spritelights[index];
     }	
+
+#ifdef DARKEN_ENEMIES
+    // If it's a monster/demon, make it darker by shifting the colormap
+    if (thing->flags & MF_SHOOTABLE || thing->flags & MF_DROPPED || thing->flags & MF_PICKUP) { // RB 2025: Brighten enemies and items
+        // Only darken if not already using a special colormap
+        // if (!fixedcolormap && !(thing->flags & MF_SHADOW) && !(thing->frame & FF_FULLBRIGHT)) {
+        
+            // Shift the colormap index to make it darker
+            // NUMCOLORMAPS is typically 32, so adding 8-16 will make it notably darker
+            vis->colormap += (NUMCOLORMAPS / 4); // Makes enemies actually BRIGHTER (*2 = 50%)
+
+            // Make sure we don't exceed the colormap bounds
+            if (vis->colormap >= colormaps + NUMCOLORMAPS * 256)
+                vis->colormap = colormaps + NUMCOLORMAPS * 256 - 1;
+       //  }
+    }
+#endif
 }
 
 

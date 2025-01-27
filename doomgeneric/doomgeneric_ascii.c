@@ -34,8 +34,8 @@
 #define WIN32_LEAN_AND_MEAN
 // #define USE_COLOR
 // Display modes
-// #define DISP_CLIPBOARD
-#define DISP_NOTEPAD_PP // notepad++ mode
+#define DISP_CLIPBOARD
+// #define DISP_NOTEPAD_PP // notepad++ mode
 #include <windows.h>
 #else
 #include <sys/ioctl.h>
@@ -59,6 +59,25 @@
 #define SCI_DOCUMENTSTART 2316
 #endif // DISP_NOTEPAD_PP
 
+#ifdef  DISP_CLIPBOARD
+// Define virtual key codes for F13-F24
+#define VK_F13 0x7C
+#define VK_F14 0x7D
+#define VK_F15 0x7E
+#define VK_F16 0x7F
+#define VK_F17 0x80
+#define VK_F18 0x81
+#define VK_F19 0x82
+#define VK_F20 0x83
+#define VK_F21 0x84
+#define VK_F22 0x85
+#define VK_F23 0x86
+#define VK_F24 0x87
+// Scintilla
+#define SCI_SELECTALL 2013
+#define SCI_CLEARALL 2004
+#endif //  DISP_CLIPBOARD
+
 
 #ifdef OS_WINDOWS
 #include <consoleapi2.h> // rb for console/cmd cursor pos top-left
@@ -71,7 +90,7 @@
 			winError(format); \
 	} while (0)
 
-static void winError(char *const format)
+static void winError(char* const format)
 {
 	LPVOID lpMsgBuf;
 	const DWORD dw = GetLastError();
@@ -91,11 +110,11 @@ struct timespec {
 	long tv_sec;
 	long tv_nsec;
 };
-int clock_gettime(const int p, struct timespec *const spec)
+int clock_gettime(const int p, struct timespec* const spec)
 {
 	(void)p;
 	__int64 wintime;
-	GetSystemTimeAsFileTime((FILETIME *)&wintime);
+	GetSystemTimeAsFileTime((FILETIME*)&wintime);
 	wintime -= 116444736000000000ll;
 	spec->tv_sec = wintime / 10000000ll;
 	spec->tv_nsec = wintime % 10000000ll * 100;
@@ -130,9 +149,29 @@ int clock_gettime(const int p, struct timespec *const spec)
 #define INPUT_BUFFER_LEN 16u
 #define EVENT_BUFFER_LEN ((INPUT_BUFFER_LEN)*2u - 1u)
 
-static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████"; // static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+// Equal-width gradient art but it sucks
+//static const char grad[] = "\u200B\u200B__~~<<~~TTFFHH####"; //░░▒▒▓▓████████"; 
+
+static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████";
+
+// Some bullshit
+// static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+
 static size_t grad_len;  // Excludes the null terminator, set in init
 int frame_count = 0;
+
+#ifdef DISP_CLIPBOARD
+// String for foreground window
+wchar_t gameWindowStr[30] = { 0 };	// Allocate
+wchar_t currWindowStr[30] = { 1 };  // Allocate
+// Key to start/stop game ticks
+char key_doUpdate = ']';
+char key_dontUpdate = '[';
+// Flag to start rendering
+BOOL doUpdate= FALSE;
+// Flag to indicate if the window that we pressed 'key_doUpdate' on (started the game in) is 
+BOOL isFocused = TRUE;
+#endif
 
 struct color_t {
 	uint32_t b : 8;
@@ -141,18 +180,18 @@ struct color_t {
 	uint32_t a : 8;
 };
 
-static char *output_buffer;
+static char* output_buffer;
 static size_t output_buffer_size;
 static struct timespec ts_init;
 
 static uint32_t sum_frame_time = 0;
 static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
-const int TARGET_FRAMETIME = 50; // 20 FPS
+const int TARGET_FRAME_TIME = 30; // 20 FPS
 
 static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static uint16_t event_buffer[EVENT_BUFFER_LEN];
-static uint16_t *event_buf_loc;
+static uint16_t* event_buf_loc;
 
 DWORD pressedKey; // RB for global KB hooks
 
@@ -220,20 +259,29 @@ void DG_Init()
 	 * SGR clear code: \033[0m (length 4)
 	 */
 #ifdef USE_COLOR 
-	// 21u represents the maximum number of bytes needed per pixel for the ASCII color escape sequence
-	// +4u is for the start/end color-escape sequences + newline 
+	 // 21u represents the maximum number of bytes needed per pixel for the ASCII color escape sequence
+	 // +4u is for the start/end color-escape sequences + newline 
 	output_buffer_size = 21u * DOOMGENERIC_RESX * DOOMGENERIC_RESY + DOOMGENERIC_RESY + 4u;
 #else
 	 // RB: orig is 4 bytes per "pixel" for regular no-color ascii
 	output_buffer_size = 4u * DOOMGENERIC_RESX * DOOMGENERIC_RESY + DOOMGENERIC_RESY + 1;  // only need +1 for \n termination, no color terms
 #endif
+#ifdef  DISP_CLIPBOARD
+	// For spacing between subsequent pasted frames that stack with intermittent clears (autoscroll in noteopad)
+	output_buffer_size += 4u * DOOMGENERIC_RESY; // picking RESY frame-height for # of \ns to print at start of each frame
+#endif //  DISP_CLIPBOARD
+
 	output_buffer = malloc(output_buffer_size);
-
 	clock_gettime(CLK, &ts_init);
-
 	memset(input_buffer, '\0', INPUT_BUFFER_LEN);
 }
 
+HWND GetWin()
+{
+	HWND hwnd = GetForegroundWindow();
+	if (!hwnd) hwnd = GetFocus();
+	return hwnd;
+}
 
 void simulate_key_combo(WORD key1, WORD key2) {
 	// Press key1 (e.g., VK_CONTROL for Ctrl)
@@ -259,23 +307,93 @@ void simulate_key_combo(WORD key1, WORD key2) {
 	SendInput(4, inputs, sizeof(INPUT));
 }
 
+// SIMULATE F-13 for: 1. Win Select-ALL, 2. DELETE
+BOOL init_clear_hotkeys() {
+	// Register F13, F14, F15 for different operations
+	BOOL success = TRUE;
+	success &= RegisterHotKey(NULL, 1, 0, VK_F13);          // Clear text
+	success &= RegisterHotKey(NULL, 2, MOD_SHIFT, VK_F13);  // Alternative clear method
+	return success;
+}
+
+void cleanup_clear_hotkeys() {
+	UnregisterHotKey(NULL, 1);
+	UnregisterHotKey(NULL, 2);
+}
+
+void process_hotkey(int id) {
+	printf("process_hotkey: %d key\n", id);
+
+	HWND hwnd = GetForegroundWindow();
+	if (!hwnd) return;
+
+	HWND focused = GetFocus();
+	if (!focused)
+	{
+		focused = hwnd;
+		hwnd = focused;
+	}
+
+	switch (id) {
+	case 1: // F13 - Select All + Delete 
+	{
+		INPUT inputs[4];
+		ZeroMemory(inputs, sizeof(inputs));
+
+		// Ctrl Down
+		inputs[0].type = INPUT_KEYBOARD;
+		inputs[0].ki.wVk = VK_CONTROL;
+
+		// A Down
+		inputs[1].type = INPUT_KEYBOARD;
+		inputs[1].ki.wVk = 'A';
+
+		// A Up
+		inputs[2].type = INPUT_KEYBOARD;
+		inputs[2].ki.wVk = 'A';
+		inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+
+		// Ctrl Up
+		inputs[3].type = INPUT_KEYBOARD;
+		inputs[3].ki.wVk = VK_CONTROL;
+		inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+
+		SendInput(4, inputs, sizeof(INPUT));
+		Sleep(50);
+
+		// Delete key
+		INPUT del;
+		ZeroMemory(&del, sizeof(del));
+		del.type = INPUT_KEYBOARD;
+		del.ki.wVk = VK_DELETE;
+		SendInput(1, &del, sizeof(INPUT));
+
+		del.ki.dwFlags = KEYEVENTF_KEYUP;
+		SendInput(1, &del, sizeof(INPUT));
+	}
+	break;
+	}
+}
 
 #ifdef DISP_CLIPBOARD
+
+const int copy_maxAttempts = 5;
+
 // Function to copy text to the clipboard
-void copy_to_clipboard(const char* text) 
+void copy_to_clipboard(const char* text)
 {
-	// Open the clipboard
-	if (!OpenClipboard(NULL)) {
-		fprintf(stderr, "Failed to open clipboard.\n");
-		
-		int numAttepts = 0;
+	// TRY open clipboard
+	if (!OpenClipboard(NULL)) 
+	{
+		// fprintf(stderr, "Failed to open clipboard.\n");
+		int attempts = 0;
 		while (!OpenClipboard(NULL))
 		{
-			Sleep(1);
-			if (numAttepts > 10)
+			Sleep(TARGET_FRAME_TIME / copy_maxAttempts *2);
+			if (attempts > 5)
 				return;
 		}
-		// return;
+		// printf("OpenClipboard recovered!");
 	}
 
 	// Empty the clipboard
@@ -315,8 +433,72 @@ void copy_to_clipboard(const char* text)
 	// Close the clipboard
 	CloseClipboard();
 }
-#else 
 
+void select_all_simple() {
+	INPUT inputs[4] = { 0 };
+	inputs[0].type = INPUT_KEYBOARD;
+	inputs[0].ki.wVk = VK_HOME;
+
+	inputs[1].type = INPUT_KEYBOARD;
+	inputs[1].ki.wVk = VK_SHIFT;
+
+	inputs[2].type = INPUT_KEYBOARD;
+	inputs[2].ki.wVk = VK_END;
+
+	SendInput(3, inputs, sizeof(INPUT));
+	Sleep(10);
+
+	// Release shift
+	inputs[3].type = INPUT_KEYBOARD;
+	inputs[3].ki.wVk = VK_SHIFT;
+	inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+	SendInput(1, &inputs[3], sizeof(INPUT));
+}
+
+void paste_to_active_window() {
+	// ============
+	// CONSIDER FRAME INTERPOLATION FOR FIRING WEAPON https://claude.ai/chat/f7f809ec-df09-4ae2-8e46-ec5ad3ea1da9 
+	// ============
+
+	HWND hwnd = GetForegroundWindow();
+	if (!hwnd) return;
+
+	HWND focused = GetFocus();
+	if (!focused)
+	{
+		focused = hwnd;
+		hwnd = focused;
+	}
+
+	// Try multiple paste methods
+	if (SendMessage(focused, WM_PASTE, 0, 0) > 0) {
+		// printf("SM1 Paste success!\n");
+		return;
+	}
+	if (SendMessage(focused, WM_APPCOMMAND, 0, MAKELPARAM(0, APPCOMMAND_PASTE)) > 0) {
+		// printf("SM2 Paste success!\n");
+		return;
+	}
+
+	// Sleep(10);
+	// Try Ctrl+V simulation
+	INPUT inputs[4] = { 0 };
+	inputs[0].type = INPUT_KEYBOARD;
+	inputs[0].ki.wVk = VK_CONTROL;
+	inputs[1].type = INPUT_KEYBOARD;
+	inputs[1].ki.wVk = 'V';
+	inputs[2].type = INPUT_KEYBOARD;
+	inputs[2].ki.wVk = 'V';
+	inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+	inputs[3].type = INPUT_KEYBOARD;
+	inputs[3].ki.wVk = VK_CONTROL;
+	inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+	SendInput(4, inputs, sizeof(INPUT));
+	// printf("SM ctrl+v sim\n");
+}
+
+#else 
+#if DISP_NOTEPAD_PP
 HWND find_notepad_plus_plus() {
 	HWND hwnd = FindWindow(L"Notepad++", NULL);
 	if (hwnd == NULL) {
@@ -398,7 +580,7 @@ void DG_ShutdownNotepadRenderer() {
 		g_renderer = NULL;
 	}
 }
-
+#endif
 #endif
 
 int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
@@ -438,15 +620,15 @@ int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
 	return sqrt(gx * gx + gy * gy);
 }
 
-
+// [SEARCH TERMS] DG_Render, DG_Frame, DG_Update, RenderFrames
 void DG_DrawFrame()
-{    
-// Clear screen every frame in Windows
+{
+	// Clear screen every frame in Windows
 #ifdef OS_WINDOWS
 	// printf("Clear\n");
 	// system("cls");  // Add this
 #endif
-	
+
 	uint32_t current_time = DG_GetTicksMs();
 	uint32_t frame_time = current_time - last_time;
 
@@ -460,9 +642,9 @@ void DG_DrawFrame()
 #endif
 
 	// Sleep the ms to make const fps
-	if (frame_time < TARGET_FRAMETIME)
+	if (frame_time < TARGET_FRAME_TIME)
 	{
-		Sleep(TARGET_FRAMETIME - frame_time);
+		Sleep(TARGET_FRAME_TIME - frame_time);
 	}
 
 	last_time = current_time;
@@ -489,8 +671,8 @@ void DG_DrawFrame()
 	uint32_t color = 0xFFFFFF00;
 #endif
 	unsigned row, col;
-	struct color_t *pixel = (struct color_t *)DG_ScreenBuffer;
-	struct color_t* *videoPixel = (struct color_t* *)I_VideoBuffer; // If the image is scaled down in DG_ScreenBuffer, then use the original source video buffer
+	struct color_t* pixel = (struct color_t*)DG_ScreenBuffer;
+	struct color_t** videoPixel = (struct color_t**)I_VideoBuffer; // If the image is scaled down in DG_ScreenBuffer, then use the original source video buffer
 
 #ifdef DISP_NOTEPAD_PP
 	// Use renderer's buffer for Notepad++
@@ -500,14 +682,21 @@ void DG_DrawFrame()
 	char* buf = output_buffer;
 #endif
 
+#ifdef  DISP_CLIPBOARD
+	// bUNCHA \N's, before frame data for Notepad autoscroll
+	for (int i = 0; i < DOOMGENERIC_RESY; i++) {
+		*buf++ = '\n';
+	}
+#endif //  DISP_CLIPBOARD
+
 	// RB added comments
 	// Iterate through each row and column of the output resolution
-	for (row = 0; row < DOOMGENERIC_RESY; row++) 
+	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
-		for (col = 0; col < DOOMGENERIC_RESX; col++) 
+		for (col = 0; col < DOOMGENERIC_RESX; col++)
 		{
 #ifdef HALF_SCALE
-			// sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
+			sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
 #else
 			sobel_operator(col, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 #endif
@@ -543,19 +732,39 @@ void DG_DrawFrame()
 
 	// Reset terminal colors to default
 #ifdef USE_COLOR
-	*buf++ = '\033';
+	* buf++ = '\033';
 	*buf++ = '[';
 	*buf++ = '0';
 	*buf = 'm';
 #endif
 
 #ifdef DISP_CLIPBOARD
+	// Do the ascii copy-paste action
 	copy_to_clipboard(output_buffer);
 	Sleep(1);
-	simulate_key_combo(VK_CONTROL, 'A');
+	// Skip paste if not focused on target window...
+	if (wcscmp(currWindowStr, gameWindowStr) != 0)
+	{
+		if (isFocused == TRUE) {
+			wprintf("\n\nUNFOCUSED FROM GAME WINDOW!\n\n Game paused...\nWindow: %ls\n", currWindowStr);
+		}
+
+		// Don't update doom until game-window re-focused!
+		Sleep(500);
+		return;
+	}
+	// Good to paste!
+	if (frame_count % 60 == 0) {
+		// Clear all
+		simulate_key_combo(VK_CONTROL, 'A');
+		Sleep(1);
+		simulate_key_combo(VK_CONTROL, 'V');
+	}
 	Sleep(1);
-	simulate_key_combo(VK_CONTROL, 'V');
+	paste_to_active_window();
 	memset(output_buffer, '\0', buf - output_buffer + 1u);
+	paste_to_active_window();
+	// simulate_key_combo(VK_CONTROL, 'A'); Sleep(1); simulate_key_combo(VK_CONTROL, 'V');
 #elif defined(DISP_NOTEPAD_PP)
 	*buf = '\0';
 	// Send to Notepad++ with error checking
@@ -584,7 +793,7 @@ void DG_DrawFrame()
 	}
 
 	// Clear buffer
-	if (g_renderer && g_renderer->buffer) 
+	if (g_renderer && g_renderer->buffer)
 	{
 		memset(g_renderer->buffer, '\0', buf - g_renderer->buffer + 1u);
 	}
@@ -805,7 +1014,7 @@ static inline unsigned char convertToDoomKey_char(char wVirtualKeyCode)
 }
 
 #else
-static unsigned char doomKeyIfTilda(const char **const buf, const unsigned char key)
+static unsigned char doomKeyIfTilda(const char** const buf, const unsigned char key)
 {
 	if (*((*buf) + 1) != '~')
 		return '\0';
@@ -813,7 +1022,7 @@ static unsigned char doomKeyIfTilda(const char **const buf, const unsigned char 
 	return key;
 }
 
-static inline unsigned char convertCsiToDoomKey(const char **const buf)
+static inline unsigned char convertCsiToDoomKey(const char** const buf)
 {
 	switch (**buf) {
 	case 'A':
@@ -876,7 +1085,7 @@ static inline unsigned char convertCsiToDoomKey(const char **const buf)
 	}
 }
 
-static inline unsigned char convertSs3ToDoomKey(const char **const buf)
+static inline unsigned char convertSs3ToDoomKey(const char** const buf)
 {
 	switch (**buf) {
 	case 'P':
@@ -892,7 +1101,7 @@ static inline unsigned char convertSs3ToDoomKey(const char **const buf)
 	}
 }
 
-static inline unsigned char convertToDoomKey(const char **const buf)
+static inline unsigned char convertToDoomKey(const char** const buf)
 {
 	switch (**buf) {
 	case '\012':
@@ -1023,7 +1232,7 @@ static inline unsigned char convertToDoomKey(const char **const buf)
 // event_buf_loc = event_buffer;
 // 
 
-int DG_GetKey(int *const pressed, unsigned char *const doomKey)
+int DG_GetKey(int* const pressed, unsigned char* const doomKey)
 {
 	if (event_buf_loc == NULL || *event_buf_loc == 0)
 		return 0;
@@ -1034,7 +1243,7 @@ int DG_GetKey(int *const pressed, unsigned char *const doomKey)
 	return 1;
 }
 
-void DG_SetWindowTitle(const char *const title)
+void DG_SetWindowTitle(const char* const title)
 {
 	CALL_STDOUT(fputs("\033]2;", stdout), "DG_SetWindowTitle: fputs error %d");
 	CALL_STDOUT(fputs(title, stdout), "DG_SetWindowTitle: fputs error %d");
@@ -1060,95 +1269,131 @@ static unsigned short* event_buf_loc;
 // Modified keyboard hook callback
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
-	if (nCode == HC_ACTION)
+	if (nCode != HC_ACTION)
+		return CallNextHookEx(g_inputState.keyboardHook, nCode, wParam, lParam);
+
+	KBDLLHOOKSTRUCT* pKeyBoard = (KBDLLHOOKSTRUCT*)lParam;
+
+	// Filter out injected keystrokes
+	if (pKeyBoard->flags & LLKHF_INJECTED)
+		return CallNextHookEx(g_inputState.keyboardHook, nCode, wParam, lParam);
+
+	EnterCriticalSection(&g_inputState.inputLock);
+
+	// Process key-up events first to prevent sticking
+	if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP)
 	{
-		KBDLLHOOKSTRUCT* pKeyBoard = (KBDLLHOOKSTRUCT*)lParam;
+		// Always clear the key state first
+		g_inputState.keyStates[pKeyBoard->vkCode] = FALSE;
 
-		// Filter out injected keystrokes
-		if (pKeyBoard->flags & LLKHF_INJECTED)
-			return CallNextHookEx(g_inputState.keyboardHook, nCode, wParam, lParam);
+		// Get the corresponding game input
+		BYTE state[256] = { 0 };
+		WORD ascii = 0;
 
-		EnterCriticalSection(&g_inputState.inputLock);
+		ToAscii(pKeyBoard->vkCode, pKeyBoard->scanCode, state, &ascii, 0);
+		unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, (char)ascii);
 
-		// Only process if we have room in the buffer
-		if (g_inputState.input_count < INPUT_BUFFER_LEN - 1u)
+		// Map special keys
+		if (pKeyBoard->vkCode == 'R' || pKeyBoard->vkCode == VK_SPACE ||
+			pKeyBoard->vkCode == VK_CONTROL || pKeyBoard->vkCode == VK_LCONTROL ||
+			pKeyBoard->vkCode == VK_RCONTROL)
 		{
-			// Get both virtual key and scan code for better mapping
-			BYTE state[256] = { 0 };
-			WORD ascii = 0;
-			GetKeyboardState(state);
-			ToAscii(pKeyBoard->vkCode, pKeyBoard->scanCode, state, &ascii, 0);
+			inp = KEY_FIRE;
+		}
+		else if (pKeyBoard->vkCode == 'E') inp = KEY_USE;
+		else if (pKeyBoard->vkCode == 'A') inp = KEY_STRAFE_L;
+		else if (pKeyBoard->vkCode == 'D') inp = KEY_STRAFE_R;
+		else if (pKeyBoard->vkCode == 'P') inp = KEY_ESCAPE;
 
-			unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, (char)ascii);
-
-			// Only process if we have room in the buffer
-			if (g_inputState.input_count < INPUT_BUFFER_LEN - 1u)
+		// Remove all instances of the key from buffer
+		if (inp)
+		{
+			unsigned i = 0;
+			while (i < g_inputState.input_count)
 			{
-				// Map both CTRL and Space to the shooting key
-				// CTRL doesnt seem to get picked up, space does
-				if (pKeyBoard->vkCode == VK_SPACE ||
-					pKeyBoard->vkCode == VK_CONTROL ||
-					pKeyBoard->vkCode == VK_LCONTROL ||
-					pKeyBoard->vkCode == VK_RCONTROL)
+				if (g_inputState.current_input_buffer[i] == inp)
 				{
-					inp = KEY_FIRE;  // or whatever DOOM's fire key constant is
+					memmove(&g_inputState.current_input_buffer[i],
+						&g_inputState.current_input_buffer[i + 1],
+						g_inputState.input_count - i - 1);
+					g_inputState.input_count--;
 				}
-				else if (pKeyBoard->vkCode == 'E') {
-					inp = KEY_USE;
-				}
-				else if (pKeyBoard->vkCode == 'A') {
-					inp = KEY_STRAFE_L;
-				}
-				else if (pKeyBoard->vkCode == 'D') {
-					inp = KEY_STRAFE_R;
-				}
-			}
-
-			if (inp)
-			{
-				switch (wParam)
+				else
 				{
-				case WM_KEYDOWN:
-				case WM_SYSKEYDOWN:
-					// Only process if key wasn't already down
-					if (!g_inputState.keyStates[pKeyBoard->vkCode])
-					{
-						g_inputState.keyStates[pKeyBoard->vkCode] = TRUE;
-
-						// Add key to current input buffer if not already present
-						for (unsigned i = 0; i < g_inputState.input_count; i++)
-						{
-							if (g_inputState.current_input_buffer[i] == inp)
-								goto skip_add;
-						}
-						g_inputState.current_input_buffer[g_inputState.input_count++] = inp;
-					}
-				skip_add:
-					break;
-
-				case WM_KEYUP:
-				case WM_SYSKEYUP:
-					g_inputState.keyStates[pKeyBoard->vkCode] = FALSE;
-					// Remove key from current input buffer
-					for (unsigned i = 0; i < g_inputState.input_count; i++)
-					{
-						if (g_inputState.current_input_buffer[i] == inp)
-						{
-							memmove(&g_inputState.current_input_buffer[i],
-								&g_inputState.current_input_buffer[i + 1],
-								g_inputState.input_count - i - 1);
-							g_inputState.input_count--;
-							break;
-						}
-					}
-					break;
+					i++;
 				}
 			}
 		}
+	}
+	// Process key-down events
+	else if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) &&
+		g_inputState.input_count < INPUT_BUFFER_LEN - 1)
+	{
+		BYTE state[256] = { 0 };
+		WORD ascii = 0;
+		GetKeyboardState(state);
+		ToAscii(pKeyBoard->vkCode, pKeyBoard->scanCode, state, &ascii, 0);
+		unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, (char)ascii);
 
-		LeaveCriticalSection(&g_inputState.inputLock);
+		// Handle game loop control
+		if (doUpdate == FALSE && inp == key_doUpdate)
+		{
+			HWND curWin = GetWin();
+			if (curWin != NULL)
+			{
+				GetWindowTextW(curWin, gameWindowStr, 30);
+				doUpdate = TRUE;
+				printf("\n\nStart key pressed!\n");
+				printf("Running game on window %ls\n", gameWindowStr);
+			}
+			else
+			{
+				wprintf(L"No window open. Select a window in order to start game with key ']'\n");
+			}
+		}
+		else if (doUpdate == TRUE && inp == key_dontUpdate)
+		{
+			doUpdate = FALSE;
+			printf("\n\nStop key pressed! Pausing game\n\n");
+		}
+
+		// Map special keys
+		if (pKeyBoard->vkCode == 'R' || pKeyBoard->vkCode == VK_SPACE ||
+			pKeyBoard->vkCode == VK_CONTROL || pKeyBoard->vkCode == VK_LCONTROL ||
+			pKeyBoard->vkCode == VK_RCONTROL)
+		{
+			inp = KEY_FIRE;
+		}
+		else if (pKeyBoard->vkCode == 'E') inp = KEY_USE;
+		else if (pKeyBoard->vkCode == 'A') inp = KEY_STRAFE_L;
+		else if (pKeyBoard->vkCode == 'D') inp = KEY_STRAFE_R;
+		else if (pKeyBoard->vkCode == 'P') inp = KEY_ESCAPE;
+
+		// Add key if it's valid and not already pressed
+		if (inp && !g_inputState.keyStates[pKeyBoard->vkCode])
+		{
+			g_inputState.keyStates[pKeyBoard->vkCode] = TRUE;
+
+			// Check if key is already in buffer
+			BOOL keyExists = FALSE;
+			for (unsigned i = 0; i < g_inputState.input_count; i++)
+			{
+				if (g_inputState.current_input_buffer[i] == inp)
+				{
+					keyExists = TRUE;
+					break;
+				}
+			}
+
+			// Add key if not already present
+			if (keyExists == FALSE)
+			{
+				g_inputState.current_input_buffer[g_inputState.input_count++] = inp;
+			}
+		}
 	}
 
+	LeaveCriticalSection(&g_inputState.inputLock);
 	return CallNextHookEx(g_inputState.keyboardHook, nCode, wParam, lParam);
 }
 
@@ -1254,8 +1499,8 @@ void CleanupInput(void)
 // Modified main function to handle Windows messages
 int main(int argc, char** argv)
 {
-	Sleep(1000);  // Sleep for a second to allow the console to initialize
 	printf("\n\nDOOM main\n\n");
+	Sleep(1000);  // Sleep for a second to allow the console to initialize
 
 #ifdef OS_WINDOWS
 	if (!InitializeInput())
@@ -1264,6 +1509,14 @@ int main(int argc, char** argv)
 		return 1;
 	}
 #endif
+
+#ifdef  DISP_CLIPBOARD
+	if (!init_clear_hotkeys()) {
+		printf("Failed to register hotkey\n");
+		return 1;
+	}
+#endif //  DISP_CLIPBOARD
+
 
 #ifdef DISP_NOTEPAD_PP
 	Sleep(1000);  // Sleep for a second to allow the console to initialize
@@ -1279,9 +1532,9 @@ int main(int argc, char** argv)
 
 #ifdef OS_WINDOWS
 	MSG msg;
+
 	while (TRUE)
 	{
-		// Process Windows messages to keep the hook alive
 		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
 			TranslateMessage(&msg);
@@ -1289,8 +1542,32 @@ int main(int argc, char** argv)
 
 			if (msg.message == WM_QUIT)
 				goto cleanup;
+			if (msg.message == WM_HOTKEY)
+				process_hotkey(msg.wParam);
 		}
 
+		// Await game-loop run/pause keystroke
+#ifdef  DISP_CLIPBOARD
+		// 1. Update current window reference
+		HWND curWin = GetWin();  // Current window info
+		if (curWin != NULL) {
+			GetWindowTextW(curWin, currWindowStr, 30);	// Set The wide-char version of win name, outputted to curWinStr
+		}
+
+		if (doUpdate == FALSE)
+		{
+			// 2. Print status
+			if (frame_count % 360 == 0) {
+				wprintf(L"Awaiting hotkey ( ']' ) to Start DOOM..\nCurrent Window: %ls\n", currWindowStr);
+			}
+			// 3. Don't update doom until \ is pressed!
+			Sleep(15);
+			frame_count++;
+			continue;
+		}
+#endif 
+
+		// Game update
 		DG_ReadInput();  // Add this here if you can't modify doomgeneric_Tick
 		doomgeneric_Tick();
 	}
@@ -1301,6 +1578,7 @@ int main(int argc, char** argv)
 #endif
 
 cleanup:
+	cleanup_clear_hotkeys();
 	CleanupInput();
 #else
 	for (;;)

@@ -74,7 +74,7 @@ int			showMessages = 1;
 	
 
 // Blocky mode, has default, 0 = high, 1 = normal
-int			detailLevel = 1; // RB Swapped from 0 to 1 for FPS^
+int			detailLevel = 0; // RB Swapped from 0 to 1 for FPS^
 int			screenblocks = 10; // RB tried 11, no joy -- use i_scale.c to halve
 
 // temp for screenblocks (0-9)
