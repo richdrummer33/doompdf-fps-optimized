@@ -1123,7 +1123,9 @@ static inline unsigned char convertToDoomKey(const char** const buf)
 }
 #endif
 
-// oid DG_ReadInput(void)
+NOTE (this will err): Consult below DG_ReadInput --> convertToDoomKey for fixing sticky keys
+
+// void DG_ReadInput(void)
 // 
 // static unsigned char prev_input_buffer[INPUT_BUFFER_LEN];
 // 
