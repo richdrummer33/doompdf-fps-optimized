@@ -15,6 +15,32 @@
 //     terminal-specific code
 //
 
+
+// Richard Beare 2025
+/* 
+ _______________________________
+	 ___NOTEPAD++ SETTINGS___
+ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+ * Language ➡️ XML
+ * Settings ➡️ Style Configurator:
+ *		Theme: Deep Black
+ *		Language: Global Styles
+ *		Style: Default Style
+ *		Colour Style:
+ *		  - Foreground: White (#FFFFFF)
+ *		  - Background: Black (#000000)
+ *		Font Style:
+ *		  - Font Name: MingLiU-ExtB
+ *		  - Bold: No
+ *		  - Italic: No
+ *		  - Underline: No
+ *		  - Font Size: 9
+ * 
+ * ---------------------------------------
+ * Screeenshot: https://imgur.com/a/2Qpy8S5
+ */
+
+
 #include "doomgeneric.h"
 #include "doomkeys.h"
 #include "i_system.h"
@@ -151,9 +177,7 @@ int clock_gettime(const int p, struct timespec* const spec)
 
 // Equal-width gradient art but it sucks
 //static const char grad[] = "\u200B\u200B__~~<<~~TTFFHH####"; //░░▒▒▓▓████████"; 
-
 static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████";
-
 // Some bullshit
 // static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
 
@@ -583,6 +607,32 @@ void DG_ShutdownNotepadRenderer() {
 #endif
 #endif
 
+// ---------------- SOBEL GRAD-INTENSITY COLORING ----------------
+// https://claude.ai/chat/a13f663a-2946-4c0a-8d62-e25f1ecc16af
+// ---------------------------------------------------------------
+
+// Example prefix triggers that affect subsequent characters:
+const char* TRIG_SEGMENT_COLORS[] = {
+	"<",    // Makes following chars blue
+	"<<",   // Makes following chars red
+	"<?",   // Another XML prefix coloring
+	"<!--", // Comment coloring
+};
+
+// Example single-char color triggers (no impact on subsequent chars):
+const char* TRIG_POINT_COLORS[] = {
+	"(",    // Just the paren is brown
+	")",    // Just the paren is brown
+	"[",    // Just the bracket color
+	"]",    // Just the bracket color
+};
+
+// Edge intensity thresholds for color changes
+#define LOW_EDGE 30
+#define MID_EDGE 60
+#define HIGH_EDGE 90
+
+
 int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
 	// Sobel kernels
 	int Gx[3][3] = {
@@ -631,6 +681,10 @@ void DG_DrawFrame()
 
 	uint32_t current_time = DG_GetTicksMs();
 	uint32_t frame_time = current_time - last_time;
+
+	// XML Coloring: Used to determine if we should insert a color trigger
+	static int last_intensity = 0;
+	static int trigger_cooldown = 0;  // Prevent triggers too close together
 
 #ifdef DISP_NOTEPAD_PP
 	// Rate limiting for Notepad++ updates
@@ -683,51 +737,76 @@ void DG_DrawFrame()
 #endif
 
 #ifdef  DISP_CLIPBOARD
-	// bUNCHA \N's, before frame data for Notepad autoscroll
+	// Bunch of NewLines, before frame data for Notepad autoscroll
 	for (int i = 0; i < DOOMGENERIC_RESY; i++) {
 		*buf++ = '\n';
 	}
-#endif //  DISP_CLIPBOARD
+#endif // DISP_CLIPBOARD
 
-	// RB added comments
-	// Iterate through each row and column of the output resolution
+	// LOOP THRU ALL ROWS 
 	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
+		int chars_in_row = 0;  // Track actual visible characters in this row
+		
+		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
 		for (col = 0; col < DOOMGENERIC_RESX; col++)
 		{
+			// Skip if we've already filled this row with visible chars
+			if (chars_in_row >= DOOMGENERIC_RESX)
+				continue;
 #ifdef HALF_SCALE
-			sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
+			int edge_intensity = sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
 #else
-			sobel_operator(col, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
-#endif
-#ifdef USE_COLOR
-			// Check if color changed from previous pixel (comparing RGB, ignoring alpha)
-			if ((color ^ *(uint32_t*)pixel) & 0x00FFFFFF) {
-				// ANSI escape sequence for 24-bit RGB color:
-				// \033[38;2;R;G;B;m
-				*buf++ = '\033';  // Escape character
-				*buf++ = '[';     // Start ANSI sequence
-				*buf++ = '3';     // Foreground color
-				*buf++ = '8';     // 24-bit RGB mode
-				*buf++ = ';';
-				*buf++ = '2';     // RGB submode
-				*buf++ = ';';
-				BYTE_TO_TEXT(buf, pixel->r);  // Convert R value to ASCII
-				*buf++ = ';';
-				BYTE_TO_TEXT(buf, pixel->g);  // Convert G value to ASCII
-				*buf++ = ';';
-				BYTE_TO_TEXT(buf, pixel->b);  // Convert B value to ASCII
-				*buf++ = 'm';     // End sequence
-				color = *(uint32_t*)pixel;   // Store current color
+			int edge_intensity = sobel_operator(col, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+#endif 
+			//#ifdef USE_COLOR ... #endif (see commit 8533f067a2b45b and prior)
+
+			uint8_t brightness = (pixel->r + pixel->g + pixel->b) / 3;
+
+			// ====>> XML Coloring for Notepad++ (Language = XML) 
+			//	https://claude.ai/chat/a13f663a-2946-4c0a-8d62-e25f1ecc16af
+			// Track how many buffer positions we'll advance
+			int chars_written = 0;
+			// Handle color triggers
+			if (trigger_cooldown == 0 && abs(edge_intensity - last_intensity) > 20) {
+				const char* trigger = NULL;
+				if (brightness < 64)        trigger = TRIG_SEGMENT_COLORS[0];
+				else if (brightness < 128)  trigger = TRIG_SEGMENT_COLORS[1];
+				else if (brightness < 192)  trigger = TRIG_SEGMENT_COLORS[2];
+				else                        trigger = TRIG_SEGMENT_COLORS[3];
+
+				size_t trigger_len = strlen(trigger);
+				// Make sure we have space for trigger + the two ASCII chars
+				if (col + trigger_len < DOOMGENERIC_RESX) {
+					strcpy(buf, trigger);
+					buf += trigger_len;
+					chars_written += trigger_len;
+					trigger_cooldown = trigger_len; // = 5; (original)
+				}
+			}
+			else
+			{
+				// (ORIGINAL CODE -- but no conditional)
+				char v_char = grad[(brightness * grad_len) / 256];
+				*buf++ = v_char;
+				*buf++ = v_char;
+				chars_written += 2;  // Count our two ASCII chars
+			}
+
+			if (trigger_cooldown > 0)
+				trigger_cooldown--;
+			last_intensity = edge_intensity;
+
+			// Advance pixel pointer only once per actual pixel
+			pixel++;
+#ifdef DEBUG
+			if (chars_written > 6) {  // Max should be 4 (trigger) + 2 (ASCII)
+				printf("Warning: Wrote %d chars for pixel at %d,%d\n", chars_written, col, row);
 			}
 #endif
-			// Convert RGB to grayscale index into ASCII gradient array
-			char v_char = grad[(pixel->r + pixel->g + pixel->b) * grad_len / 765u];  // 765 = 255*3
-			*buf++ = v_char;	// Write the character
-			*buf++ = v_char;	// Write a SECOND character, cause such chars are 2x taller than their width
-			pixel++;
+			// <==== (END) XML Coloring for Notepad++ 
 		}
-		*buf++ = '\n';           // End of row
+		*buf++ = '\n';
 	}
 
 	// Reset terminal colors to default
@@ -1122,8 +1201,6 @@ static inline unsigned char convertToDoomKey(const char** const buf)
 	}
 }
 #endif
-
-NOTE (this will err): Consult below DG_ReadInput --> convertToDoomKey for fixing sticky keys
 
 // void DG_ReadInput(void)
 // 
