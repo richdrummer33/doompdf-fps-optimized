@@ -610,14 +610,79 @@ void DG_ShutdownNotepadRenderer() {
 // ---------------- SOBEL GRAD-INTENSITY COLORING ----------------
 // https://claude.ai/chat/a13f663a-2946-4c0a-8d62-e25f1ecc16af
 // ---------------------------------------------------------------
+// Used to determine if we should insert a color trigger
+static int last_intensity = 0;
+static int trigger_cooldown = 0;  // Prevent triggers too close together
 
-// Example prefix triggers that affect subsequent characters:
-const char* TRIG_SEGMENT_COLORS[] = {
-	"<",    // Makes following chars blue
-	"<<",   // Makes following chars red
-	"<?",   // Another XML prefix coloring
-	"<!--", // Comment coloring
+// NPP XML syntax highlight colors
+enum XML_COLOR {
+	TAG_ATTR,     // <tag attribute="value">
+	COMMENT,      // <!-- comment -->
+	CDATA,        // <![CDATA[ data ]]>
+	ELEMENT,      // <element>
+	DECLARATION,  // <?xml version="1.0"?>
+	SPECIAL      // <!DOCTYPE ...>
 };
+
+const char* TRIG_SEGMENT_COLORS[] = {
+   "<",          // Regular tag
+   "<!--",       // Comment
+   "<![CDATA[",  // CDATA section  
+   "<?",         // XML declaration
+   "<!",         // Special tags (DOCTYPE etc)
+   "</",         // Closing tag
+};
+
+static const uint8_t TRIG_LENGTHS[] = { 1, 4, 9, 2, 2, 2 };
+
+// RGB thresholds in 5-6-5 format
+#define R_HIGH (0x1D << 11)
+#define G_HIGH (0x38 << 5)
+#define B_HIGH 0x1D
+#define R_MED  (0x15 << 11)
+#define G_MED  (0x2A << 5) 
+#define B_MED  0x15
+
+// NOT APPLICCABLE
+int GetXMLTrigger_16bitColor(uint16_t pixel) {
+	uint16_t r = pixel & (0x1F << 11);
+	uint16_t g = pixel & (0x3F << 5);
+	uint16_t b = pixel & 0x1F;
+
+	// Map RGB combinations to XML syntax elements
+	if (r > R_HIGH && g < G_MED && b < B_MED) return 0;      // Tag
+	if (g > G_HIGH && r < R_MED && b < B_MED) return 1;      // Comment
+	if (b > B_HIGH && r < R_MED && g < G_MED) return 2;      // CDATA  
+	if (r > R_MED && g > G_MED) return 3;                    // Declaration
+	if (g > G_MED && b > B_MED) return 4;                    // Special
+	if (r > R_MED && b > B_MED) return 5;                    // Closing tag
+
+	return 0;  // Default to regular tag
+}
+
+// NOT APPLICCABLE
+int GetXMLTrigger_32bitColor(uint32_t pixel) {
+	uint8_t r = (pixel >> 16) & 0xFF;
+	uint8_t g = (pixel >> 8) & 0xFF;
+	uint8_t b = pixel & 0xFF;
+
+	// Thresholds for 8-bit channels
+#define R_HIGH 0xD0
+#define G_HIGH 0xD0
+#define B_HIGH 0xD0
+#define R_MED 0x80
+#define G_MED 0x80
+#define B_MED 0x80
+
+	if (r > R_HIGH && g < G_MED && b < B_MED) return 0;
+	if (g > G_HIGH && r < R_MED && b < B_MED) return 1;
+	if (b > B_HIGH && r < R_MED && g < G_MED) return 2;
+	if (r > R_MED && g > G_MED) return 3;
+	if (g > G_MED && b > B_MED) return 4;
+	if (r > R_MED && b > B_MED) return 5;
+
+	return 0;
+}
 
 // Example single-char color triggers (no impact on subsequent chars):
 const char* TRIG_POINT_COLORS[] = {
@@ -682,10 +747,6 @@ void DG_DrawFrame()
 	uint32_t current_time = DG_GetTicksMs();
 	uint32_t frame_time = current_time - last_time;
 
-	// XML Coloring: Used to determine if we should insert a color trigger
-	static int last_intensity = 0;
-	static int trigger_cooldown = 0;  // Prevent triggers too close together
-
 #ifdef DISP_NOTEPAD_PP
 	// Rate limiting for Notepad++ updates
 	DWORD current_tick = GetTickCount();
@@ -703,6 +764,7 @@ void DG_DrawFrame()
 
 	last_time = current_time;
 	sum_frame_time += frame_time;
+	trigger_cooldown = 0;
 	frame_count++;
 
 	if (frame_count % fps_log_interval == 0) {
@@ -725,7 +787,7 @@ void DG_DrawFrame()
 	uint32_t color = 0xFFFFFF00;
 #endif
 	unsigned row, col;
-	struct color_t* pixel = (struct color_t*)DG_ScreenBuffer;
+	struct color_t* in_pixel = (struct color_t*)DG_ScreenBuffer;
 	struct color_t** videoPixel = (struct color_t**)I_VideoBuffer; // If the image is scaled down in DG_ScreenBuffer, then use the original source video buffer
 
 #ifdef DISP_NOTEPAD_PP
@@ -746,14 +808,12 @@ void DG_DrawFrame()
 	// LOOP THRU ALL ROWS 
 	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
-		int chars_in_row = 0;  // Track actual visible characters in this row
-		
+		// Track how many buffer positions we'll advance
+		int chars_written = 0;
+
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
-		for (col = 0; col < DOOMGENERIC_RESX; col++)
+		for (col = 0; col < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2; col++)
 		{
-			// Skip if we've already filled this row with visible chars
-			if (chars_in_row >= DOOMGENERIC_RESX)
-				continue;
 #ifdef HALF_SCALE
 			int edge_intensity = sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
 #else
@@ -761,50 +821,77 @@ void DG_DrawFrame()
 #endif 
 			//#ifdef USE_COLOR ... #endif (see commit 8533f067a2b45b and prior)
 
-			uint8_t brightness = (pixel->r + pixel->g + pixel->b) / 3;
+			uint8_t brightness = (in_pixel->r + in_pixel->g + in_pixel->b) / 3;
 
-			// ====>> XML Coloring for Notepad++ (Language = XML) 
-			//	https://claude.ai/chat/a13f663a-2946-4c0a-8d62-e25f1ecc16af
-			// Track how many buffer positions we'll advance
-			int chars_written = 0;
 			// Handle color triggers
-			if (trigger_cooldown == 0 && abs(edge_intensity - last_intensity) > 20) {
-				const char* trigger = NULL;
-				if (brightness < 64)        trigger = TRIG_SEGMENT_COLORS[0];
-				else if (brightness < 128)  trigger = TRIG_SEGMENT_COLORS[1];
-				else if (brightness < 192)  trigger = TRIG_SEGMENT_COLORS[2];
-				else                        trigger = TRIG_SEGMENT_COLORS[3];
+			if (trigger_cooldown == 0) 
+			{
+				// Abs or delta?
+				int edge_diff = edge_intensity - last_intensity;
 
-				size_t trigger_len = strlen(trigger);
-				// Make sure we have space for trigger + the two ASCII chars
-				if (col + trigger_len < DOOMGENERIC_RESX) {
-					strcpy(buf, trigger);
-					buf += trigger_len;
-					chars_written += trigger_len;
-					trigger_cooldown = trigger_len; // = 5; (original)
+				if (edge_diff > 20 || edge_diff < -20) 
+				{ 
+					// Avoid abs() function call. Use bit shifting for faster division by 64. 
+					// (prev commit) BRIGHTNESS -> XML-COL (0-3 range based on edge intensity)
+					// (this commit) PIXEL -> XML-COL:
+					uint8_t color_idx = GetXMLTrigger_32bitColor(in_pixel);
+					const char* trigger = TRIG_SEGMENT_COLORS[color_idx];
+					uint8_t trig_len = TRIG_LENGTHS[color_idx];
+
+					// Combine bounds check
+					if (col + trig_len < DOOMGENERIC_RESX) 
+					{
+						// Copy each char from TRIG_SEGMENT_COLORSe 
+						// Unrolled memory copy based on known length
+						switch (trig_len) {
+						case 4: // <!-- 
+							*buf++ = '<';
+							*buf++ = '!';
+							*buf++ = '-';
+							*buf++ = '-';
+							break;
+						case 2: // << or <?
+							*buf++ = '<';
+							*buf++ = (brightness < 128 ? '<' : '?');
+							break;
+						case 1: // 
+							*buf++ = '<';
+							break;
+						}
+
+						chars_written += trig_len;
+						trigger_cooldown = 5;
+					}
 				}
 			}
-			else
+			
+			// Else, the cooldown was not set and we need to make more chars to finish the row
+			if(trigger_cooldown < 5)
 			{
-				// (ORIGINAL CODE -- but no conditional)
-				char v_char = grad[(brightness * grad_len) / 256];
-				*buf++ = v_char;
-				*buf++ = v_char;
-				chars_written += 2;  // Count our two ASCII chars
-			}
+				if (trigger_cooldown > 0)
+					trigger_cooldown--;
 
-			if (trigger_cooldown > 0)
-				trigger_cooldown--;
+				// Get the char that corresponds to the brightness
+				char v_char = grad[(brightness * grad_len) / 256];
+
+				// Write 2 chars for aspect ratio correction
+				*buf++ = v_char;
+				*buf++ = v_char;
+				
+				// Count our two ASCII chars4
+				chars_written += 2;  
+			}
 			last_intensity = edge_intensity;
 
 			// Advance pixel pointer only once per actual pixel
-			pixel++;
+			in_pixel++;
+
+			// Optional: Debug check for buffer overrun
 #ifdef DEBUG
 			if (chars_written > 6) {  // Max should be 4 (trigger) + 2 (ASCII)
 				printf("Warning: Wrote %d chars for pixel at %d,%d\n", chars_written, col, row);
 			}
 #endif
-			// <==== (END) XML Coloring for Notepad++ 
 		}
 		*buf++ = '\n';
 	}
@@ -1594,6 +1681,14 @@ int main(int argc, char** argv)
 		printf("Failed to register hotkey\n");
 		return 1;
 	}
+
+	// set TRIG_SEGMENT_LENGTHS
+	// int len = sizeof(TRIG_SEGMENT_COLORS);
+	// for (size_t i = 0; i < len; i++)
+	// {
+	// 	TRIG_SEGMENT_LENGTHS[i] = strlen(TRIG_SEGMENT_COLORS[i]);
+	// }
+	printf("*TODO* Copied len of each TRIG_SEGMENT_COLORS, which has %d\n color-triggers", 0); // , len);
 #endif //  DISP_CLIPBOARD
 
 
