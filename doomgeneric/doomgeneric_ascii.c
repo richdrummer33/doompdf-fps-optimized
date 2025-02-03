@@ -613,6 +613,7 @@ void DG_ShutdownNotepadRenderer() {
 // Used to determine if we should insert a color trigger
 static int last_intensity = 0;
 static int trigger_cooldown = 0;  // Prevent triggers too close together
+static const int TRIGGER_COOLDOWN_FRAMES = 5;
 
 // NPP XML syntax highlight colors
 enum XML_COLOR {
@@ -635,55 +636,65 @@ const char* TRIG_SEGMENT_COLORS[] = {
 
 static const uint8_t TRIG_LENGTHS[] = { 1, 4, 9, 2, 2, 2 };
 
-// RGB thresholds in 5-6-5 format
-#define R_HIGH (0x1D << 11)
-#define G_HIGH (0x38 << 5)
-#define B_HIGH 0x1D
-#define R_MED  (0x15 << 11)
-#define G_MED  (0x2A << 5) 
-#define B_MED  0x15
+#define RGB_THRESHOLD 180
+#define RGB_MID 120
 
-// NOT APPLICCABLE
-int GetXMLTrigger_16bitColor(uint16_t pixel) {
-	uint16_t r = pixel & (0x1F << 11);
-	uint16_t g = pixel & (0x3F << 5);
-	uint16_t b = pixel & 0x1F;
+int GetXMLTriggerByBrightness(uint32_t pixel) {
+	uint8_t r = (pixel >> 16) & 0xFF;
+	uint8_t g = (pixel >> 8) & 0xFF;
+	uint8_t b = pixel & 0xFF;
+	uint8_t brightness = (r + g + b) / 3;
 
-	// Map RGB combinations to XML syntax elements
-	if (r > R_HIGH && g < G_MED && b < B_MED) return 0;      // Tag
-	if (g > G_HIGH && r < R_MED && b < B_MED) return 1;      // Comment
-	if (b > B_HIGH && r < R_MED && g < G_MED) return 2;      // CDATA  
-	if (r > R_MED && g > G_MED) return 3;                    // Declaration
-	if (g > G_MED && b > B_MED) return 4;                    // Special
-	if (r > R_MED && b > B_MED) return 5;                    // Closing tag
-
-	return 0;  // Default to regular tag
+	switch (brightness >> 6) { // Split 0-255 into 4 regions
+	case 3:  return 0; // Very bright (192-255) -> Tag
+	case 2:  return 1; // Bright (128-191) -> Comment
+	case 1:  return 2; // Dark (64-127) -> CDATA
+	default: return 3; // Very dark (0-63) -> Declaration
+	}
 }
 
-// NOT APPLICCABLE
-int GetXMLTrigger_32bitColor(uint32_t pixel) {
+int GetXMLTrigger_24bitColor(uint32_t pixel) {
 	uint8_t r = (pixel >> 16) & 0xFF;
 	uint8_t g = (pixel >> 8) & 0xFF;
 	uint8_t b = pixel & 0xFF;
 
-	// Thresholds for 8-bit channels
-#define R_HIGH 0xD0
-#define G_HIGH 0xD0
-#define B_HIGH 0xD0
-#define R_MED 0x80
-#define G_MED 0x80
-#define B_MED 0x80
-
-	if (r > R_HIGH && g < G_MED && b < B_MED) return 0;
-	if (g > G_HIGH && r < R_MED && b < B_MED) return 1;
-	if (b > B_HIGH && r < R_MED && g < G_MED) return 2;
-	if (r > R_MED && g > G_MED) return 3;
-	if (g > G_MED && b > B_MED) return 4;
-	if (r > R_MED && b > B_MED) return 5;
-
-	return 0;
+	switch ((r > RGB_THRESHOLD) | ((g > RGB_THRESHOLD) << 1) | ((b > RGB_THRESHOLD) << 2)) {
+	case 0b001: // B high - Blues in DOOM
+		return 2; // CDATA
+	case 0b100: // R high - Reds/Browns in DOOM
+		return 0; // Tag
+	case 0b010: // G high - Green armor/items
+		return 1; // Comment
+	case 0b110: // R+G high - Yellows
+		return 3; // Declaration
+	case 0b011: // G+B high - Cyan
+		return 4; // Special
+	case 0b101: // R+B high - Magenta/Purple
+		return 5; // Closing
+	default:
+		return 0;
+	}
 }
 
+// NOT APPLICCABLE
+int GetXMLTrigger_16bitColor(uint16_t pixel) 
+{
+	uint16_t r = pixel & (0x1F << 11);
+	uint16_t g = pixel & (0x3F << 5);
+	uint16_t b = pixel & 0x1F;
+	// ... UNUSED
+}
+
+// NOT APPLICCABLE
+int GetXMLTrigger_32bitColor(uint32_t pixel) 
+{
+	uint8_t r = (pixel >> 16) & 0xFF;
+	uint8_t g = (pixel >> 8) & 0xFF;
+	uint8_t b = pixel & 0xFF;
+	// ... UNUSED
+}
+
+// UNUSED (useful for single-pxl 'in between' cols)
 // Example single-char color triggers (no impact on subsequent chars):
 const char* TRIG_POINT_COLORS[] = {
 	"(",    // Just the paren is brown
@@ -761,10 +772,10 @@ void DG_DrawFrame()
 	{
 		Sleep(TARGET_FRAME_TIME - frame_time);
 	}
-
+	
+	trigger_cooldown = 0;
 	last_time = current_time;
 	sum_frame_time += frame_time;
-	trigger_cooldown = 0;
 	frame_count++;
 
 	if (frame_count % fps_log_interval == 0) {
@@ -834,12 +845,13 @@ void DG_DrawFrame()
 					// Avoid abs() function call. Use bit shifting for faster division by 64. 
 					// (prev commit) BRIGHTNESS -> XML-COL (0-3 range based on edge intensity)
 					// (this commit) PIXEL -> XML-COL:
-					uint8_t color_idx = GetXMLTrigger_32bitColor(in_pixel);
+					uint8_t color_idx = GetXMLTriggerByBrightness(in_pixel);
 					const char* trigger = TRIG_SEGMENT_COLORS[color_idx];
 					uint8_t trig_len = TRIG_LENGTHS[color_idx];
 
-					// Combine bounds check
-					if (col + trig_len < DOOMGENERIC_RESX) 
+					// DON'T paste color-triggers in the last N chars 
+					// (N being the max len of the trigger char-sequences)
+					if (chars_written + trig_len < DOOMGENERIC_RESX)
 					{
 						// Copy each char from TRIG_SEGMENT_COLORSe 
 						// Unrolled memory copy based on known length
@@ -860,13 +872,13 @@ void DG_DrawFrame()
 						}
 
 						chars_written += trig_len;
-						trigger_cooldown = 5;
+						trigger_cooldown = TRIGGER_COOLDOWN_FRAMES;
 					}
 				}
 			}
 			
 			// Else, the cooldown was not set and we need to make more chars to finish the row
-			if(trigger_cooldown < 5)
+			if(trigger_cooldown < TRIGGER_COOLDOWN_FRAMES)
 			{
 				if (trigger_cooldown > 0)
 					trigger_cooldown--;
@@ -874,12 +886,13 @@ void DG_DrawFrame()
 				// Get the char that corresponds to the brightness
 				char v_char = grad[(brightness * grad_len) / 256];
 
-				// Write 2 chars for aspect ratio correction
-				*buf++ = v_char;
-				*buf++ = v_char;
-				
-				// Count our two ASCII chars4
-				chars_written += 2;  
+				*buf++ = v_char; 	// CHAR 1
+				chars_written++;
+				if (chars_written < DOOMGENERIC_RESX * 2)
+				{
+					*buf++ = v_char; // CHAR 2 
+					chars_written++;
+				}
 			}
 			last_intensity = edge_intensity;
 
