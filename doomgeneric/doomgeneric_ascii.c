@@ -212,7 +212,7 @@ static struct timespec ts_init;
 static uint32_t sum_frame_time = 0;
 static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
-const int TARGET_FRAME_TIME = 30; // 20 FPS
+const int TARGET_FRAME_TIME = 15; // 20 FPS
 
 static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static uint16_t event_buffer[EVENT_BUFFER_LEN];
@@ -615,6 +615,9 @@ void DG_ShutdownNotepadRenderer() {
 static int last_intensity = 0;
 static int trigger_cooldown = 0;  // Prevent triggers too close together
 
+#define COLOR_CHANGES_PER_ROW 10
+#define TRIGGER_COOLDOWN (DOOMGENERIC_RESX / COLOR_CHANGES_PER_ROW)
+
 // Example prefix triggers that affect subsequent characters:
 const char* TRIG_SEGMENT_COLORS[] = {
 	"<<",   // R: Makes following chars red
@@ -624,8 +627,7 @@ const char* TRIG_SEGMENT_COLORS[] = {
 };
 
 // Pre-compute trigger lengths at compile time
-static uint8_t TRIG_SEGMENT_LENGTHS[] = { 1, 2, 2, 4 }; // Length of each TRIG_SEGMENT_COLORS
-
+static uint8_t TRIG_SEGMENT_LENGTHS[] = { 2, 4, 1, 2 }; // Length of each TRIG_SEGMENT_COLORS
 
 // Example single-char color triggers (no impact on subsequent chars):
 const char* TRIG_POINT_COLORS[] = {
@@ -634,6 +636,21 @@ const char* TRIG_POINT_COLORS[] = {
 	"[",    // Just the bracket color
 	"]",    // Just the bracket color
 };
+
+// This is the fastest approach: Direct char assignments without branches
+static inline void fill_color_trigger(char* buf, uint8_t brightness_idx) 
+{
+	// First char is always '<'
+	buf[0] = '<';
+
+	// Branchless assignments using lookup table for second char
+	static const char second_chars[] = { '<', '!', 0, '?' };
+	buf[1] = second_chars[brightness_idx];
+
+	// Only brightness_idx == 1 (<!--) needs more chars
+	buf[2] = (brightness_idx == 1) ? '-' : 0;
+	buf[3] = (brightness_idx == 1) ? '-' : 0;
+}
 
 // Edge intensity thresholds for color changes
 #define LOW_EDGE 30
@@ -803,8 +820,9 @@ void DG_DrawFrame()
 #endif 
 			//#ifdef USE_COLOR ... #endif (see commit 8533f067a2b45b and prior)
 
-			uint8_t brightness = (in_pixel->r + in_pixel->g + in_pixel->b) / 3;
-
+			// Divide by 64 to confine colors to make it 4-color indexed 
+			uint8_t brightness_idx = ((in_pixel->r + in_pixel->g + in_pixel->b) / 3) 
+									 >> 6;
 			// Handle color triggers
 			if (trigger_cooldown == 0) 
 			{
@@ -812,48 +830,29 @@ void DG_DrawFrame()
 				int edge_diff = edge_intensity - last_intensity;
 				last_intensity = edge_intensity;
 
-				if (edge_diff > 20 || edge_diff < -20) 
-				{ // Avoid abs() function call
-					// Use bit shifting for faster division by 64
-					uint8_t brightness_idx = brightness >> 6; // 0-3 range
+				if (edge_diff > 20 || edge_diff < -20)  // Avoid abs() function call (slow - signed ints are 2's compliment; need multiple bit shifts >> and or ^ operations to unsign)
+				{ 
+					// Use bit shifting fast division by 64
 					const char* trigger = TRIG_SEGMENT_COLORS[brightness_idx];	// The ascii combo for XML coloring
 					uint8_t trig_len = TRIG_SEGMENT_LENGTHS[brightness_idx];	// Precomputed lengths
 
-					// Combine bounds check
+					// Branchless XML color trigger char assignment to ascii frame buffer
 					if (col + trig_len < DOOMGENERIC_RESX) 
 					{
-						// Copy each char from TRIG_SEGMENT_COLORSe 
-						// Unrolled memory copy based on known length
-						switch (trig_len) {
-						case 4: // <!-- 
-							*buf++ = '<';
-							*buf++ = '!';
-							*buf++ = '-';
-							*buf++ = '-';
-							break;
-						case 2: // << or <?
-							*buf++ = '<';
-							*buf++ = (brightness < 128 ? '<' : '?');
-							break;
-						case 1: // 
-							*buf++ = '<';
-							break;
-						}
-
-						chars_written += trig_len;
-						trigger_cooldown = 5;
+						fill_color_trigger(buf, brightness_idx);
+						trigger_cooldown = TRIGGER_COOLDOWN; // Both a flag AND the cooldown (as # frames)
 					}
 				}
 			}
 			
-			// Else, the cooldown was not set and we need to make more chars to finish the row
-			if(trigger_cooldown < 5)
+			// If the cooldown was not just set... fill normal char
+			if(trigger_cooldown < TRIGGER_COOLDOWN) 
 			{
 				if (trigger_cooldown > 0)
 					trigger_cooldown--;
 
 				// Get the char that corresponds to the brightness
-				char v_char = grad[(brightness * grad_len) / 256];
+				char v_char = grad[(brightness_idx * grad_len) / 256];
 
 				// Write 2 chars for aspect ratio correction
 				*buf++ = v_char;
