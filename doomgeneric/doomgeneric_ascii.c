@@ -193,6 +193,7 @@ char key_doUpdate = ']';
 char key_dontUpdate = '[';
 // Flag to start rendering
 BOOL doUpdate= FALSE;
+BOOL wasPaused = FALSE;
 // Flag to indicate if the window that we pressed 'key_doUpdate' on (started the game in) is 
 BOOL isFocused = TRUE;
 #endif
@@ -613,88 +614,19 @@ void DG_ShutdownNotepadRenderer() {
 // Used to determine if we should insert a color trigger
 static int last_intensity = 0;
 static int trigger_cooldown = 0;  // Prevent triggers too close together
-static const int TRIGGER_COOLDOWN_FRAMES = 5;
 
-// NPP XML syntax highlight colors
-enum XML_COLOR {
-	TAG_ATTR,     // <tag attribute="value">
-	COMMENT,      // <!-- comment -->
-	CDATA,        // <![CDATA[ data ]]>
-	ELEMENT,      // <element>
-	DECLARATION,  // <?xml version="1.0"?>
-	SPECIAL      // <!DOCTYPE ...>
-};
-
+// Example prefix triggers that affect subsequent characters:
 const char* TRIG_SEGMENT_COLORS[] = {
-   "<",          // Regular tag
-   "<!--",       // Comment
-   "<![CDATA[",  // CDATA section  
-   "<?",         // XML declaration
-   "<!",         // Special tags (DOCTYPE etc)
-   "</",         // Closing tag
+	"<<",   // R: Makes following chars red
+	"<!--", // G: Comment coloring
+	"<",    // B: Makes following chars blue
+	"<?",   // (?) Another XML prefix coloring
 };
 
-static const uint8_t TRIG_LENGTHS[] = { 1, 4, 9, 2, 2, 2 };
+// Pre-compute trigger lengths at compile time
+static uint8_t TRIG_SEGMENT_LENGTHS[] = { 1, 2, 2, 4 }; // Length of each TRIG_SEGMENT_COLORS
 
-#define RGB_THRESHOLD 180
-#define RGB_MID 120
 
-int GetXMLTriggerByBrightness(uint32_t pixel) {
-	uint8_t r = (pixel >> 16) & 0xFF;
-	uint8_t g = (pixel >> 8) & 0xFF;
-	uint8_t b = pixel & 0xFF;
-	uint8_t brightness = (r + g + b) / 3;
-
-	switch (brightness >> 6) { // Split 0-255 into 4 regions
-	case 3:  return 0; // Very bright (192-255) -> Tag
-	case 2:  return 1; // Bright (128-191) -> Comment
-	case 1:  return 2; // Dark (64-127) -> CDATA
-	default: return 3; // Very dark (0-63) -> Declaration
-	}
-}
-
-int GetXMLTrigger_24bitColor(uint32_t pixel) {
-	uint8_t r = (pixel >> 16) & 0xFF;
-	uint8_t g = (pixel >> 8) & 0xFF;
-	uint8_t b = pixel & 0xFF;
-
-	switch ((r > RGB_THRESHOLD) | ((g > RGB_THRESHOLD) << 1) | ((b > RGB_THRESHOLD) << 2)) {
-	case 0b001: // B high - Blues in DOOM
-		return 2; // CDATA
-	case 0b100: // R high - Reds/Browns in DOOM
-		return 0; // Tag
-	case 0b010: // G high - Green armor/items
-		return 1; // Comment
-	case 0b110: // R+G high - Yellows
-		return 3; // Declaration
-	case 0b011: // G+B high - Cyan
-		return 4; // Special
-	case 0b101: // R+B high - Magenta/Purple
-		return 5; // Closing
-	default:
-		return 0;
-	}
-}
-
-// NOT APPLICCABLE
-int GetXMLTrigger_16bitColor(uint16_t pixel) 
-{
-	uint16_t r = pixel & (0x1F << 11);
-	uint16_t g = pixel & (0x3F << 5);
-	uint16_t b = pixel & 0x1F;
-	// ... UNUSED
-}
-
-// NOT APPLICCABLE
-int GetXMLTrigger_32bitColor(uint32_t pixel) 
-{
-	uint8_t r = (pixel >> 16) & 0xFF;
-	uint8_t g = (pixel >> 8) & 0xFF;
-	uint8_t b = pixel & 0xFF;
-	// ... UNUSED
-}
-
-// UNUSED (useful for single-pxl 'in between' cols)
 // Example single-char color triggers (no impact on subsequent chars):
 const char* TRIG_POINT_COLORS[] = {
 	"(",    // Just the paren is brown
@@ -772,11 +704,49 @@ void DG_DrawFrame()
 	{
 		Sleep(TARGET_FRAME_TIME - frame_time);
 	}
-	
-	trigger_cooldown = 0;
-	last_time = current_time;
-	sum_frame_time += frame_time;
+
+	// Update frame timers
 	frame_count++;
+	last_time = current_time;
+
+	// NEW: Handle "pause frame draw"
+	if (!doUpdate) {
+		if (wasPaused == FALSE)
+		{
+			// Good to paste!
+			if (frame_count % 60 == 0) {
+				// Clear all
+				simulate_key_combo(VK_CONTROL, 'A');
+				Sleep(1);
+				simulate_key_combo(VK_CONTROL, 'V');
+			}
+			Sleep(1);
+			paste_to_active_window();
+			memset(output_buffer, '\0', 1);
+			paste_to_active_window();
+		}
+
+		wasPaused = TRUE;
+		
+		return;
+		if (frame_count % fps_log_interval == 0) {
+			printf("PAUSE SKIP");
+		}
+
+		return;
+	}
+
+	if (wasPaused) {  
+		// Reset when resuming from pause state...
+		sum_frame_time = 0;
+		last_intensity = 0;
+		wasPaused = FALSE;
+	}
+	else {
+		// Continue draw!
+		sum_frame_time += frame_time;
+	}
+
 
 	if (frame_count % fps_log_interval == 0) {
 		uint32_t avg_frame_time = sum_frame_time / fps_log_interval;
@@ -815,6 +785,7 @@ void DG_DrawFrame()
 		*buf++ = '\n';
 	}
 #endif // DISP_CLIPBOARD
+	trigger_cooldown = 0; // For XML-color trigger ascii sequences min-gap
 
 	// LOOP THRU ALL ROWS 
 	for (row = 0; row < DOOMGENERIC_RESY; row++)
@@ -823,7 +794,7 @@ void DG_DrawFrame()
 		int chars_written = 0;
 
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
-		for (col = 0; col < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2; col++)
+		for (col = 0; col < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2 - 1; col++)
 		{
 #ifdef HALF_SCALE
 			int edge_intensity = sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
@@ -839,19 +810,17 @@ void DG_DrawFrame()
 			{
 				// Abs or delta?
 				int edge_diff = edge_intensity - last_intensity;
+				last_intensity = edge_intensity;
 
 				if (edge_diff > 20 || edge_diff < -20) 
-				{ 
-					// Avoid abs() function call. Use bit shifting for faster division by 64. 
-					// (prev commit) BRIGHTNESS -> XML-COL (0-3 range based on edge intensity)
-					// (this commit) PIXEL -> XML-COL:
-					uint8_t color_idx = GetXMLTriggerByBrightness(in_pixel);
-					const char* trigger = TRIG_SEGMENT_COLORS[color_idx];
-					uint8_t trig_len = TRIG_LENGTHS[color_idx];
+				{ // Avoid abs() function call
+					// Use bit shifting for faster division by 64
+					uint8_t brightness_idx = brightness >> 6; // 0-3 range
+					const char* trigger = TRIG_SEGMENT_COLORS[brightness_idx];	// The ascii combo for XML coloring
+					uint8_t trig_len = TRIG_SEGMENT_LENGTHS[brightness_idx];	// Precomputed lengths
 
-					// DON'T paste color-triggers in the last N chars 
-					// (N being the max len of the trigger char-sequences)
-					if (chars_written + trig_len < DOOMGENERIC_RESX)
+					// Combine bounds check
+					if (col + trig_len < DOOMGENERIC_RESX) 
 					{
 						// Copy each char from TRIG_SEGMENT_COLORSe 
 						// Unrolled memory copy based on known length
@@ -872,13 +841,13 @@ void DG_DrawFrame()
 						}
 
 						chars_written += trig_len;
-						trigger_cooldown = TRIGGER_COOLDOWN_FRAMES;
+						trigger_cooldown = 5;
 					}
 				}
 			}
 			
 			// Else, the cooldown was not set and we need to make more chars to finish the row
-			if(trigger_cooldown < TRIGGER_COOLDOWN_FRAMES)
+			if(trigger_cooldown < 5)
 			{
 				if (trigger_cooldown > 0)
 					trigger_cooldown--;
@@ -886,15 +855,13 @@ void DG_DrawFrame()
 				// Get the char that corresponds to the brightness
 				char v_char = grad[(brightness * grad_len) / 256];
 
-				*buf++ = v_char; 	// CHAR 1
-				chars_written++;
-				if (chars_written < DOOMGENERIC_RESX * 2)
-				{
-					*buf++ = v_char; // CHAR 2 
-					chars_written++;
-				}
+				// Write 2 chars for aspect ratio correction
+				*buf++ = v_char;
+				*buf++ = v_char;
+				
+				// Count our two ASCII chars4
+				chars_written += 2;  
 			}
-			last_intensity = edge_intensity;
 
 			// Advance pixel pointer only once per actual pixel
 			in_pixel++;
@@ -1747,10 +1714,9 @@ int main(int argc, char** argv)
 			if (frame_count % 360 == 0) {
 				wprintf(L"Awaiting hotkey ( ']' ) to Start DOOM..\nCurrent Window: %ls\n", currWindowStr);
 			}
-			// 3. Don't update doom until \ is pressed!
-			Sleep(15);
+			// 3. Don't update doom until \ is pressed! 
+			// Sleep(15);
 			frame_count++;
-			continue;
 		}
 #endif 
 
