@@ -175,11 +175,16 @@ int clock_gettime(const int p, struct timespec* const spec)
 #define INPUT_BUFFER_LEN 16u
 #define EVENT_BUFFER_LEN ((INPUT_BUFFER_LEN)*2u - 1u)
 
-// Equal-width gradient art but it sucks
-//static const char grad[] = "\u200B\u200B__~~<<~~TTFFHH####"; //░░▒▒▓▓████████"; 
-static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████";
-// Some bullshit
-// static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+// ======== COLOR GRADIENT ========
+// ⚠️ Ensure no MD/XML/etc trig characters!
+// OPTION A) Equal-width gradient art but it sucks
+//		static const char grad[] = "\u200B\u200B__~~<<~~TTFFHH####"; //░░▒▒▓▓████████"; 
+// OPTION B) Nice geo but interferes cols
+//		static const char grad[] = "  __--<<\\/\\/~~##░░▒▒▓▓████████";
+// OPTION C) The bullshit
+//		static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+// OPTION D) Geom but not interferes cols
+static const char grad[] = " ..,,--\||++==xxXXHMM"; // H and M for heavier weights
 
 static size_t grad_len;  // Excludes the null terminator, set in init
 int frame_count = 0;
@@ -636,17 +641,24 @@ static const uint8_t BRIGHTNESS_THRESHOLDS[] = {
 	255   // Goldenrod (247-248)
 };
 
-// Optimized trigger mappings
-static const struct 
-{
-	char trigger[4];  // Actual chars to write
-	uint8_t length;   // Length of the trigger
-} 
+// Color trigger definitions with their terminators
+typedef struct {
+	char start[4];     // Starting sequence
+	char end[4];       // Terminating sequence
+	uint8_t start_len; // Length of start sequence
+	uint8_t end_len;   // Length of end sequence
+} ColorTrigger;
 
+// Current color state tracking
+typedef struct {
+	uint8_t active_color;  // Index of current active color trigger
+	BOOL needs_termination;// Whether current color needs to be terminated
+} ColorState;
 
-#define MD_TRIG
-//#define XML_TRIG
-//#define TCL_TRIG
+// Stores the last color written to ascii buff (MD, XML, etc) 
+// Check this to know what col termination to write
+static ColorState color_state = { 0, FALSE };
+#define MD_TRIG //#define XML_TRIG //#define TCL_TRIG
 
 #ifdef XML_TRIG
 LANG_TRIGGERS[] =
@@ -669,7 +681,6 @@ LANG_TRIGGERS[] =
 	{{'[',0,0,0}, 1}     // Goldenrod
 };
 #endif
-
 #ifdef TCL_TRIG
 LANG_TRIGGERS[] = {
 	{{'#',0,0,0}, 1},    // Black
@@ -690,88 +701,19 @@ LANG_TRIGGERS[] = {
 	{{'{',0,0,0}, 1}     // Goldenrod
 };
 #endif
-
-/*#ifdef MD_TRIG // Olde and breakey -- not made for NP++'s markdown._preinstalled.udl.xml
-LANG_TRIGGERS[] = {
-	{{'`',0,0,0}, 1},    // Black (inline code)
-	{{'*',0,0,0}, 1},    // Dark red (emphasis)
-	{{'*','*',0,0}, 2},  // Red (strong emphasis)
-	{{'_',0,0,0}, 1},    // Light red (alt emphasis)
-	{{'#',0,0,0}, 1},    // Brown (h1)
-	{{'#','#',0,0}, 2},  // Darker brown (h2)
-	{{'#','#','#',0}, 3},// Light brown (h3)
-	{{'[',0,0,0}, 1},    // Green (link start)
-	{{'!',0,0,0}, 1},    // Dark olive (image)
-	{{'>',0,0,0}, 1},    // Olive (blockquote)
-	{{'~',0,0,0}, 1},    // Dark goldenrod (strikethrough start)
-	{{'*','*',0,0}, 2},  // Red again (strong emphasis)
-	{{'`','`','`',0}, 3},// Blue (code block)
-	{{'-',0,0,0}, 1},    // Yellow (list item)
-	{{'=',0,0,0}, 1},    // Bright yellow (h1 underline)
-	{{'|',0,0,0}, 1}     // Goldenrod (table separator)
-};
-#endif*/
-/*#ifdef MD_TRIG
-LANG_TRIGGERS[] = {
-	{{'`',0,0,0}, 1},    // Black (inline code)
-	{{'*',0,0,0}, 1},    // Dark red (emphasis)
-	{{'*','*',0,0}, 2},  // Red (strong emphasis)
-	{{'_',0,0,0}, 1},    // Light red (alt emphasis)
-	{{'#',0,0,0}, 1},    // Brown (h1)
-	{{'#','#',0,0}, 2},  // Darker brown (h2)
-	{{'#','#','#',0}, 3},// Light brown (h3)
-	{{'[',0,0,0}, 1},    // Green (link start)
-	{{'!','[',0,0}, 2},  // Dark olive (image)
-	{{'>',0,0,0}, 1},    // Olive (blockquote)
-	{{'~','~',0,0}, 2},  // Dark goldenrod (strikethrough)
-	{{'*','*','*',0}, 3},// Red again (strong emphasis alt)
-	{{'`','`','`',0}, 3},// Blue (code block)
-	{{'-',0,0,0}, 1},    // Yellow (list item)
-	{{'=',0,0,0}, 1},    // Bright yellow (header underline)
-	{{'|',0,0,0}, 1}     // Goldenrod (table separator)
-};
-#endif*/
-
-/*#ifdef MD_TRIG // Exactly 2 char per line to prevent color issues
-LANG_TRIGGERS[] = {
-	{{'`','`',0,0}, 2},    // Black (using double chars to force state)
-	{{'*','>',0,0}, 2},    // Dark red (combining markers)
-	{{'#','*',0,0}, 2},    // Red 
-	{{'_','_',0,0}, 2},    // Light red
-	{{'[',']',0,0}, 2},    // Brown
-	{{'<','>',0,0}, 2},    // Darker brown
-	{{'{','}',0,0}, 2},    // Light brown
-	{{'|','-',0,0}, 2},    // Green
-	{{'=','=',0,0}, 2},    // Dark olive
-	{{'+','+',0,0}, 2},    // Olive
-	{{'~','~',0,0}, 2},    // Dark goldenrod
-	{{'*','|',0,0}, 2},    // Red again
-	{{'`','|',0,0}, 2},    // Blue
-	{{'-','=',0,0}, 2},    // Yellow
-	{{'=','>',0,0}, 2},    // Bright yellow
-	{{'|','=',0,0}, 2}     // Goldenrod
-};
-#endif*/
 #ifdef MD_TRIG
-LANG_TRIGGERS[] = {
-	{{'-','\\',0,0}, 2},    // Black (dash-backslash combo)
-	{{'\\','/',0,0}, 2},    // Dark red (backslash-forward slash)  
-	{{'/','-',0,0}, 2},     // Red (forward slash-dash)
-	{{'-','/',0,0}, 2},     // Light red (dash-forward slash)
-	{{'\\','-',0,0}, 2},    // Brown (backslash-dash)
-	{{'/','\\',0,0}, 2},    // Darker brown (forward slash-backslash)
-	//{{'~','-',0,0}, 2},     // Light brown (tilde-dash)
-	{{'=','-',0,0}, 2},     // Green (equals-dash)
-	{{':','-',0,0}, 2},     // Dark olive (colon-dash)
-	{{'+','-',0,0}, 2},     // Olive (plus-dash)
-	{{'.','-',0,0}, 2},     // Dark goldenrod (dot-dash)
-	{{'-','.',0,0}, 2},     // Red again (dash-dot)
-	{{'-','~',0,0}, 2},     // Blue (dash-tilde)
-	{{'-','=',0,0}, 2},     // Yellow (dash-equals)
-	{{'=','/',0,0}, 2},     // Bright yellow (equals-forward slash)
-	{{'/',':',0,0}, 2}      // Goldenrod (forward slash-colon)
+static const ColorTrigger LANG_TRIGGERS[] = {
+	{{'{', '`', 0, 0}, {'{', '`', 0, 0}, 1, 1},      // Code (black)
+	{{'*', 0, 0, 0}, {'*', 0, 0, 0}, 1, 1},          // Emphasis (dark red)
+	{{'*', '*', 0, 0}, {'*', '*', 0, 0}, 2, 2},      // Strong (red)
+	{{'_', 0, 0, 0}, {'_', 0, 0, 0}, 1, 1},          // Alt emphasis (light red)
+	{{'<', '-', '-', 0}, {'-', '-', '>', 0}, 3, 3},  // Comment (brown)
+	{{'[', 0, 0, 0}, {']', 0, 0, 0}, 1, 1},          // Link (green)
+	{{'~', '~', 0, 0}, {'~', '~', 0, 0}, 2, 2},      // Strikethrough (blue)
+	{{'|', 0, 0, 0}, {'|', 0, 0, 0}, 1, 1}           // Table (yellow)
 };
 #endif
+
 // Fast brightness to palette index mapping
 // BRIGHTNESS IS A COLOR CODE FOR DOOM (for it's 8 bit color pallete)
 static inline uint8_t brightness_to_palette_idx(uint8_t brightness) 
@@ -785,26 +727,37 @@ static inline uint8_t brightness_to_palette_idx(uint8_t brightness)
 }
 
 // Optimized trigger fill function
-static inline uint8_t fill_mapped_trigger(char* buf, uint8_t brightness, uint8_t col_index)
+static inline uint8_t fill_mapped_trigger(char* buf, uint8_t brightness, uint8_t column_idx)
 {
-	uint8_t palette_idx = brightness_to_palette_idx(brightness);
-	uint8_t trigger_len = LANG_TRIGGERS[palette_idx].length;
+	uint8_t palette_idx = 0;
+	uint8_t trigger_len = 0;
+
+	if (color_state.needs_termination == TRUE) {
+		palette_idx = color_state.active_color;
+		trigger_len = LANG_TRIGGERS[palette_idx].end_len;	// Use end_len from the last printed color marker/trigger
+	} else {
+		palette_idx = brightness_to_palette_idx(brightness);
+		trigger_len = LANG_TRIGGERS[palette_idx].start_len;  // Use start_len from struct
+	}
 
 	// Get outta here prevent buffer overrun
-	if (col_index + trigger_len >= DOOMGENERIC_RESX)
+	if (column_idx + trigger_len >= DOOMGENERIC_RESX)
 		return 0;
 
-	const char* trigger = LANG_TRIGGERS[palette_idx].trigger;
+	// Copy start sequence instead of single trigger
+	const char* sequence = LANG_TRIGGERS[palette_idx].start;
 
 	// Direct memory copy of the exact number of bytes needed
-	for (uint8_t i = 0; i < trigger_len; i++)
-	{
-		buf[i] = trigger[i];
+	for (uint8_t i = 0; i < trigger_len; i++) {
+		buf[i] = sequence[i];
 	}
+
+	// Update color state
+	color_state.active_color = palette_idx;
+	color_state.needs_termination = TRUE;
 
 	return trigger_len;
 }
-
 
 // Edge intensity thresholds for color changes
 #define LOW_EDGE 30
