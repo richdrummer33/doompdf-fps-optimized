@@ -212,7 +212,7 @@ static struct timespec ts_init;
 static uint32_t sum_frame_time = 0;
 static uint32_t last_time = 0;
 const int fps_log_interval = 60; // frames
-const int TARGET_FRAME_TIME = 30; // 20 FPS
+const int TARGET_FRAME_TIME = 60; // FPS=1/FRAMETIME
 
 static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static uint16_t event_buffer[EVENT_BUFFER_LEN];
@@ -615,25 +615,196 @@ void DG_ShutdownNotepadRenderer() {
 static int last_intensity = 0;
 static int trigger_cooldown = 0;  // Prevent triggers too close together
 
-// Example prefix triggers that affect subsequent characters:
-const char* TRIG_SEGMENT_COLORS[] = {
-	"<<",   // R: Makes following chars red
-	"<!--", // G: Comment coloring
-	"<",    // B: Makes following chars blue
-	"<?",   // (?) Another XML prefix coloring
+// Maps brightness ranges to the color palette indices (0-15)
+// Each entry represents the upper bound of that color's brightness range
+static const uint8_t BRIGHTNESS_THRESHOLDS[] = {
+	15,   // Black (7-8)
+	31,   // Dark red (23-24)
+	47,   // Red (39-40)
+	63,   // Light red (55-56)
+	79,   // Brown (71-72)
+	95,   // Darker brown (87-88)
+	111,  // Light brown (103-104)
+	127,  // Green (119-120)
+	143,  // Dark olive (133-134)
+	159,  // Olive (151-152)
+	175,  // Dark goldenrod (167-168)
+	191,  // Red again (183-184)
+	207,  // Blue (199-200)
+	223,  // Yellow (215-216)
+	239,  // Bright yellow (231-232)
+	255   // Goldenrod (247-248)
 };
 
-// Pre-compute trigger lengths at compile time
-static uint8_t TRIG_SEGMENT_LENGTHS[] = { 1, 2, 2, 4 }; // Length of each TRIG_SEGMENT_COLORS
+// Optimized trigger mappings
+static const struct 
+{
+	char trigger[4];  // Actual chars to write
+	uint8_t length;   // Length of the trigger
+} 
 
 
-// Example single-char color triggers (no impact on subsequent chars):
-const char* TRIG_POINT_COLORS[] = {
-	"(",    // Just the paren is brown
-	")",    // Just the paren is brown
-	"[",    // Just the bracket color
-	"]",    // Just the bracket color
+#define MD_TRIG
+//#define XML_TRIG
+//#define TCL_TRIG
+
+#ifdef XML_TRIG
+LANG_TRIGGERS[] =
+{
+	{{'<','<',0,0}, 2},  // Black
+	{{'<','<',0,0}, 2},  // Dark red
+	{{'<','<',0,0}, 2},  // Red
+	{{'<','<',0,0}, 2},  // Light red
+	{{'(',0,0,0}, 1},    // Brown
+	{{'(',0,0,0}, 1},    // Darker brown
+	{{'(',0,0,0}, 1},    // Light brown
+	{{'<','!','-','-'}, 4}, // Green
+	{{'<','!','-','-'}, 4}, // Dark olive
+	{{'<','!','-','-'}, 4}, // Olive
+	{{'<','!','-','-'}, 4}, // Dark goldenrod
+	{{'<','<',0,0}, 2},  // Red again
+	{{'<',0,0,0}, 1},    // Blue
+	{{'[',0,0,0}, 1},    // Yellow
+	{{'[',0,0,0}, 1},    // Bright yellow
+	{{'[',0,0,0}, 1}     // Goldenrod
 };
+#endif
+
+#ifdef TCL_TRIG
+LANG_TRIGGERS[] = {
+	{{'#',0,0,0}, 1},    // Black
+	{{';',0,0,0}, 1},    // Dark red
+	{{';',0,0,0}, 1},    // Red
+	{{';',0,0,0}, 1},    // Light red
+	{{'[',0,0,0}, 1},    // Brown
+	{{'[',0,0,0}, 1},    // Darker brown
+	{{'[',0,0,0}, 1},    // Light brown
+	{{'#','#',0,0}, 2},  // Green (TCL comment)
+	{{'#','#',0,0}, 2},  // Dark olive
+	{{'#','#',0,0}, 2},  // Olive
+	{{'#','#',0,0}, 2},  // Dark goldenrod
+	{{';',0,0,0}, 1},    // Red again
+	{{'$',0,0,0}, 1},    // Blue (variable reference)
+	{{'{',0,0,0}, 1},    // Yellow
+	{{'{',0,0,0}, 1},    // Bright yellow
+	{{'{',0,0,0}, 1}     // Goldenrod
+};
+#endif
+
+/*#ifdef MD_TRIG // Olde and breakey -- not made for NP++'s markdown._preinstalled.udl.xml
+LANG_TRIGGERS[] = {
+	{{'`',0,0,0}, 1},    // Black (inline code)
+	{{'*',0,0,0}, 1},    // Dark red (emphasis)
+	{{'*','*',0,0}, 2},  // Red (strong emphasis)
+	{{'_',0,0,0}, 1},    // Light red (alt emphasis)
+	{{'#',0,0,0}, 1},    // Brown (h1)
+	{{'#','#',0,0}, 2},  // Darker brown (h2)
+	{{'#','#','#',0}, 3},// Light brown (h3)
+	{{'[',0,0,0}, 1},    // Green (link start)
+	{{'!',0,0,0}, 1},    // Dark olive (image)
+	{{'>',0,0,0}, 1},    // Olive (blockquote)
+	{{'~',0,0,0}, 1},    // Dark goldenrod (strikethrough start)
+	{{'*','*',0,0}, 2},  // Red again (strong emphasis)
+	{{'`','`','`',0}, 3},// Blue (code block)
+	{{'-',0,0,0}, 1},    // Yellow (list item)
+	{{'=',0,0,0}, 1},    // Bright yellow (h1 underline)
+	{{'|',0,0,0}, 1}     // Goldenrod (table separator)
+};
+#endif*/
+/*#ifdef MD_TRIG
+LANG_TRIGGERS[] = {
+	{{'`',0,0,0}, 1},    // Black (inline code)
+	{{'*',0,0,0}, 1},    // Dark red (emphasis)
+	{{'*','*',0,0}, 2},  // Red (strong emphasis)
+	{{'_',0,0,0}, 1},    // Light red (alt emphasis)
+	{{'#',0,0,0}, 1},    // Brown (h1)
+	{{'#','#',0,0}, 2},  // Darker brown (h2)
+	{{'#','#','#',0}, 3},// Light brown (h3)
+	{{'[',0,0,0}, 1},    // Green (link start)
+	{{'!','[',0,0}, 2},  // Dark olive (image)
+	{{'>',0,0,0}, 1},    // Olive (blockquote)
+	{{'~','~',0,0}, 2},  // Dark goldenrod (strikethrough)
+	{{'*','*','*',0}, 3},// Red again (strong emphasis alt)
+	{{'`','`','`',0}, 3},// Blue (code block)
+	{{'-',0,0,0}, 1},    // Yellow (list item)
+	{{'=',0,0,0}, 1},    // Bright yellow (header underline)
+	{{'|',0,0,0}, 1}     // Goldenrod (table separator)
+};
+#endif*/
+
+/*#ifdef MD_TRIG // Exactly 2 char per line to prevent color issues
+LANG_TRIGGERS[] = {
+	{{'`','`',0,0}, 2},    // Black (using double chars to force state)
+	{{'*','>',0,0}, 2},    // Dark red (combining markers)
+	{{'#','*',0,0}, 2},    // Red 
+	{{'_','_',0,0}, 2},    // Light red
+	{{'[',']',0,0}, 2},    // Brown
+	{{'<','>',0,0}, 2},    // Darker brown
+	{{'{','}',0,0}, 2},    // Light brown
+	{{'|','-',0,0}, 2},    // Green
+	{{'=','=',0,0}, 2},    // Dark olive
+	{{'+','+',0,0}, 2},    // Olive
+	{{'~','~',0,0}, 2},    // Dark goldenrod
+	{{'*','|',0,0}, 2},    // Red again
+	{{'`','|',0,0}, 2},    // Blue
+	{{'-','=',0,0}, 2},    // Yellow
+	{{'=','>',0,0}, 2},    // Bright yellow
+	{{'|','=',0,0}, 2}     // Goldenrod
+};
+#endif*/
+#ifdef MD_TRIG
+LANG_TRIGGERS[] = {
+	{{'-','\\',0,0}, 2},    // Black (dash-backslash combo)
+	{{'\\','/',0,0}, 2},    // Dark red (backslash-forward slash)  
+	{{'/','-',0,0}, 2},     // Red (forward slash-dash)
+	{{'-','/',0,0}, 2},     // Light red (dash-forward slash)
+	{{'\\','-',0,0}, 2},    // Brown (backslash-dash)
+	{{'/','\\',0,0}, 2},    // Darker brown (forward slash-backslash)
+	//{{'~','-',0,0}, 2},     // Light brown (tilde-dash)
+	{{'=','-',0,0}, 2},     // Green (equals-dash)
+	{{':','-',0,0}, 2},     // Dark olive (colon-dash)
+	{{'+','-',0,0}, 2},     // Olive (plus-dash)
+	{{'.','-',0,0}, 2},     // Dark goldenrod (dot-dash)
+	{{'-','.',0,0}, 2},     // Red again (dash-dot)
+	{{'-','~',0,0}, 2},     // Blue (dash-tilde)
+	{{'-','=',0,0}, 2},     // Yellow (dash-equals)
+	{{'=','/',0,0}, 2},     // Bright yellow (equals-forward slash)
+	{{'/',':',0,0}, 2}      // Goldenrod (forward slash-colon)
+};
+#endif
+// Fast brightness to palette index mapping
+// BRIGHTNESS IS A COLOR CODE FOR DOOM (for it's 8 bit color pallete)
+static inline uint8_t brightness_to_palette_idx(uint8_t brightness) 
+{
+	for (uint8_t i = 0; i < sizeof(BRIGHTNESS_THRESHOLDS); i++) 
+	{
+		if (brightness <= BRIGHTNESS_THRESHOLDS[i])
+			return i;
+	}
+	return sizeof(BRIGHTNESS_THRESHOLDS) - 1;
+}
+
+// Optimized trigger fill function
+static inline uint8_t fill_mapped_trigger(char* buf, uint8_t brightness, uint8_t col_index)
+{
+	uint8_t palette_idx = brightness_to_palette_idx(brightness);
+	uint8_t trigger_len = LANG_TRIGGERS[palette_idx].length;
+
+	// Get outta here prevent buffer overrun
+	if (col_index + trigger_len >= DOOMGENERIC_RESX)
+		return 0;
+
+	const char* trigger = LANG_TRIGGERS[palette_idx].trigger;
+
+	// Direct memory copy of the exact number of bytes needed
+	for (uint8_t i = 0; i < trigger_len; i++)
+	{
+		buf[i] = trigger[i];
+	}
+
+	return trigger_len;
+}
+
 
 // Edge intensity thresholds for color changes
 #define LOW_EDGE 30
@@ -678,7 +849,52 @@ int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
 	return sqrt(gx * gx + gy * gy);
 }
 
-// [SEARCH TERMS] DG_Render, DG_Frame, DG_Update, RenderFrames
+// Add these globals
+static float ema_fps = 60.0f;  // Initial estimate
+static LARGE_INTEGER last_clear_time = { 0 };
+static LARGE_INTEGER last_frame_time = { 0 };
+static LARGE_INTEGER frequency = { 0 };
+
+// Replace your fixed frame clearing with this adaptive version
+void adaptive_frame_clear(void) {
+	LARGE_INTEGER current_time;
+	QueryPerformanceCounter(&current_time);
+
+	// Calculate time since last frame
+	float delta_sec = (float)(current_time.QuadPart - last_frame_time.QuadPart) / frequency.QuadPart;
+
+	// Update EMA of FPS (alpha = 0.1 for ~3 sec window)
+	float instant_fps = 1.0f / delta_sec;
+	ema_fps = (0.1f * instant_fps) + (0.9f * ema_fps);
+
+	// Calculate optimal frames between clears based on FPS
+	// Target ~1 second between clears, but adjust if FPS is unstable
+	int frames_between_clears = (int)(ema_fps + 0.5f);
+
+	// Clamp to reasonable ranges
+	frames_between_clears = max(30, min(120, frames_between_clears));
+
+	// Check if we should clear based on adaptive frame count
+	if (frame_count % frames_between_clears == 0) {
+		// Check if at least 0.75 seconds have passed since last clear
+		float time_since_clear = (float)(current_time.QuadPart - last_clear_time.QuadPart) / frequency.QuadPart;
+
+		if (time_since_clear >= 0.75f) {
+			// Clear and paste
+			simulate_key_combo(VK_CONTROL, 'A');
+			Sleep(1);
+			simulate_key_combo(VK_CONTROL, 'V');
+
+			// Update last clear time
+			last_clear_time = current_time;
+		}
+	}
+
+	// Update last frame time
+	last_frame_time = current_time;
+}
+
+// DG_Render, DG_Frame, DG_Update, RenderFrames
 void DG_DrawFrame()
 {
 	// Clear screen every frame in Windows
@@ -713,13 +929,17 @@ void DG_DrawFrame()
 	if (!doUpdate) {
 		if (wasPaused == FALSE)
 		{
-			// Good to paste!
-			if (frame_count % 60 == 0) {
+			// Good to clear the entire prev 60 frames!
+			if (frame_count % 30 == 0) {
 				// Clear all
 				simulate_key_combo(VK_CONTROL, 'A');
 				Sleep(1);
 				simulate_key_combo(VK_CONTROL, 'V');
 			}
+
+			// Good to clear the entire prev ?? frames!
+			// adaptive_frame_clear();
+
 			Sleep(1);
 			paste_to_active_window();
 			memset(output_buffer, '\0', 1);
@@ -786,12 +1006,13 @@ void DG_DrawFrame()
 	}
 #endif // DISP_CLIPBOARD
 	trigger_cooldown = 0; // For XML-color trigger ascii sequences min-gap
+	last_intensity = 0;
 
 	// LOOP THRU ALL ROWS 
 	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
 		// Track how many buffer positions we'll advance
-		int chars_written = 0;
+		uint8_t chars_written = 0;
 
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
 		for (col = 0; col < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2 - 1; col++)
@@ -804,50 +1025,24 @@ void DG_DrawFrame()
 			//#ifdef USE_COLOR ... #endif (see commit 8533f067a2b45b and prior)
 
 			uint8_t brightness = (in_pixel->r + in_pixel->g + in_pixel->b) / 3;
-
-			// Handle color triggers
-			if (trigger_cooldown == 0) 
+			
+			// In your main rendering loop
+			if (trigger_cooldown <= 0)
 			{
-				// Abs or delta?
 				int edge_diff = edge_intensity - last_intensity;
 				last_intensity = edge_intensity;
-
-				if (edge_diff > 20 || edge_diff < -20) 
-				{ // Avoid abs() function call
-					// Use bit shifting for faster division by 64
-					uint8_t brightness_idx = brightness >> 6; // 0-3 range
-					const char* trigger = TRIG_SEGMENT_COLORS[brightness_idx];	// The ascii combo for XML coloring
-					uint8_t trig_len = TRIG_SEGMENT_LENGTHS[brightness_idx];	// Precomputed lengths
-
-					// Combine bounds check
-					if (col + trig_len < DOOMGENERIC_RESX) 
-					{
-						// Copy each char from TRIG_SEGMENT_COLORSe 
-						// Unrolled memory copy based on known length
-						switch (trig_len) {
-						case 4: // <!-- 
-							*buf++ = '<';
-							*buf++ = '!';
-							*buf++ = '-';
-							*buf++ = '-';
-							break;
-						case 2: // << or <?
-							*buf++ = '<';
-							*buf++ = (brightness < 128 ? '<' : '?');
-							break;
-						case 1: // 
-							*buf++ = '<';
-							break;
-						}
-
-						chars_written += trig_len;
-						trigger_cooldown = 5;
-					}
+				if (edge_diff > 5 || edge_diff < -5)
+				{
+					uint8_t written = fill_mapped_trigger(buf, brightness, col, row);
+					buf += written;
+					chars_written += written;
+					// Shorter cooldown to allow more color variation
+					trigger_cooldown = 3; // SHORTENED FROM 5 
 				}
 			}
 			
 			// Else, the cooldown was not set and we need to make more chars to finish the row
-			if(trigger_cooldown < 5)
+			if(trigger_cooldown < 3)
 			{
 				if (trigger_cooldown > 0)
 					trigger_cooldown--;
@@ -1657,6 +1852,10 @@ int main(int argc, char** argv)
 #endif
 
 #ifdef  DISP_CLIPBOARD
+	QueryPerformanceFrequency(&frequency);
+	QueryPerformanceCounter(&last_clear_time);
+	QueryPerformanceCounter(&last_frame_time);
+
 	if (!init_clear_hotkeys()) {
 		printf("Failed to register hotkey\n");
 		return 1;
