@@ -184,7 +184,8 @@ int clock_gettime(const int p, struct timespec* const spec)
 // OPTION C) The bullshit
 //		static const char grad[] =  " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
 // OPTION D) Geom but not interferes cols
-static const char grad[] = " ..,,--\||++==xxXXHMM"; // H and M for heavier weights
+///static const char grad[] = " ..,,--++==xxXXHMM"; // H and M for heavier weights
+static const char grad[] = "..,,aabbccddnnppssxxXXHMM";
 
 static size_t grad_len;  // Excludes the null terminator, set in init
 int frame_count = 0;
@@ -194,8 +195,8 @@ int frame_count = 0;
 wchar_t gameWindowStr[30] = { 0 };	// Allocate
 wchar_t currWindowStr[30] = { 1 };  // Allocate
 // Key to start/stop game ticks
-char key_doUpdate = ']';
-char key_dontUpdate = '[';
+char key_doUpdate = '9';
+char key_dontUpdate = '0';
 // Flag to start rendering
 BOOL doUpdate= FALSE;
 BOOL wasPaused = FALSE;
@@ -618,9 +619,12 @@ void DG_ShutdownNotepadRenderer() {
 // ---------------------------------------------------------------
 // Used to determine if we should insert a color trigger
 static int last_intensity = 0;
-static int trigger_cooldown = 0;  // Prevent triggers too close together
+static uint8_t trigger_cooldown = 0;  // Prevent triggers too close together
 
-// Maps brightness ranges to the color palette indices (0-15)
+#define MAX_COLORS_PER_ROW 10
+#define COLOR_COOLDOWN ((DOOMGENERIC_RESX) / (MAX_COLORS_PER_ROW))
+
+// Maps color ("brightness") ranges to the color palette indices (0-15)
 // Each entry represents the upper bound of that color's brightness range
 static const uint8_t BRIGHTNESS_THRESHOLDS[] = {
 	15,   // Black (7-8)
@@ -650,14 +654,15 @@ typedef struct {
 } ColorTrigger;
 
 // Current color state tracking
-typedef struct {
-	uint8_t active_color;  // Index of current active color trigger
-	BOOL needs_termination;// Whether current color needs to be terminated
-} ColorState;
+// typedef struct {
+// 	uint8_t active_color;  // Index of current active color trigger
+// 	BOOL needs_termination;// Whether current color needs to be terminated
+// } ColorState;
 
 // Stores the last color written to ascii buff (MD, XML, etc) 
 // Check this to know what col termination to write
-static ColorState color_state = { 0, FALSE };
+// static ColorState last_color_state = { -1, FALSE };
+static int8_t last_color_idx = 0;
 #define MD_TRIG //#define XML_TRIG //#define TCL_TRIG
 
 #ifdef XML_TRIG
@@ -702,61 +707,140 @@ LANG_TRIGGERS[] = {
 };
 #endif
 #ifdef MD_TRIG
+static const char LineStartTrigger[] = "[]";
 static const ColorTrigger LANG_TRIGGERS[] = {
-	{{'{', '`', 0, 0}, {'{', '`', 0, 0}, 1, 1},      // Code (black)
-	{{'*', 0, 0, 0}, {'*', 0, 0, 0}, 1, 1},          // Emphasis (dark red)
-	{{'*', '*', 0, 0}, {'*', '*', 0, 0}, 2, 2},      // Strong (red)
-	{{'_', 0, 0, 0}, {'_', 0, 0, 0}, 1, 1},          // Alt emphasis (light red)
-	{{'<', '-', '-', 0}, {'-', '-', '>', 0}, 3, 3},  // Comment (brown)
-	{{'[', 0, 0, 0}, {']', 0, 0, 0}, 1, 1},          // Link (green)
-	{{'~', '~', 0, 0}, {'~', '~', 0, 0}, 2, 2},      // Strikethrough (blue)
-	{{'|', 0, 0, 0}, {'|', 0, 0, 0}, 1, 1}           // Table (yellow)
+
+	// ==== Bold Orange (spaces cancel)
+	{{0, 0, 0, 0}, {0, 0, 0, 0}, 0, 0},              // NO COlOR (default)
+
+	// ==== Bold Orange (spaces cancel)
+	{{'=', '=', '=', '='}, {'@', '@', 0, 0}, 4, 2},              // Orange (color 1)
+
+	// <!-- --> Comments (colored text only within)
+	{{'<', '!', '-', '-'}, {'-', '-', '>', '+'}, 4, 4},        // Gray (color 2)
+
+	// `Inline Code` (colored text only within)
+	{{'`', 0, 0, 0}, {'`', 0, 0, 0}, 1, 1},                  // Green (color 3)
+
+	// // Line comments (spaces cancel)
+	{{'/', '/', 0, 0}, {'@', '@', 0, 0}, 2, 1},                  // Purple (color 4)
+
+	// [Bracketed text] (spaces cancel)
+	{{'[', 0, 0, 0}, {']', 0, 0, 0}, 1, 1},                  // Purple (color 4)
+
+	// Special characters for Bold Light Blue (spaces cancel)
+	{{'@', '<', '>', '`'}, {':', '-', ':', 0}, 1, 0},        // Light Blue (color 5)
+	//{{':','|', ':', '|'}, {':', '|', 0, 0}, 1, 0},          // Light Blue (color 5)
+
+	// _ Dark Blue (spaces cancel)
+	{{'_', 0, 0, 0}, {'@', 0, 0, 0}, 1, 1},                    // Dark Blue (color 6)
+
+	// __ Bold Dark Blue (spaces cancel)
+	{{'_', '_', 0, 0}, {'@', 0, 0, 0}, 2, 1},                  // Bold Dark Blue (color 7)
+
+	// DUPLICATE
+	// __ Bold Dark Blue (spaces cancel)
+	{{'_', '_', 0, 0}, {'@', 0, 0, 0}, 2, 1},                  // Bold Dark Blue (color 7)
 };
+// Color indices reference:
+// 1 - Bold Orange
+// 2 - Gray (Comment)
+// 3 - Green (Code)
+// 4 - Purple
+// 5 - Bold Light Blue
+// 6 - Dark Blue
+// 7 - Bold Dark Blue
 #endif
 
-// Fast brightness to palette index mapping
-// BRIGHTNESS IS A COLOR CODE FOR DOOM (for it's 8 bit color pallete)
-static inline uint8_t brightness_to_palette_idx(uint8_t brightness) 
-{
-	for (uint8_t i = 0; i < sizeof(BRIGHTNESS_THRESHOLDS); i++) 
-	{
-		if (brightness <= BRIGHTNESS_THRESHOLDS[i])
-			return i;
-	}
-	return sizeof(BRIGHTNESS_THRESHOLDS) - 1;
-}
+/*
+// POINTERS
+	char* chars;        // Declares pointer to char(s)
+	char str[] = "hi";  // Array of chars (auto-sized)
+	char* p = str;      // p points to first char of str
+
+// WAYS TO DEFINE
+	char* chars = "hello";     // Points to string literal (read-only)
+	char str[] = "hello";      // Creates modifiable array
+	char* chars = malloc(10);  // Allocates 10 bytes dynamically
+
+// PASSING TO FUNCTIONS
+	void func(char* str);      // Passes pointer (can modify original)
+	void func(const char* str); // Passes pointer (read-only)
+
+// QUICK REFERENCE
+	*ptr      // Dereference (get/set value)
+	&var      // Get address of var
+	ptr++     // Move pointer to next element
+	ptr[i]    // Array indexing (same as *(ptr + i))
+*/
 
 // Optimized trigger fill function
-static inline uint8_t fill_mapped_trigger(char* buf, uint8_t brightness, uint8_t column_idx)
+// NOW simple 3-bit color mapping for 8 colors instead of intensity
+// fill_char is to fill non-even indexed chars
+static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t colm_idx, char fill_char)
 {
-	uint8_t palette_idx = 0;
-	uint8_t trigger_len = 0;
+// == VARS ==
+	// New chars to add to buf
+	char* chars[8] = { 0 };  // Array of 8 chars, initialized to zero
 
-	if (color_state.needs_termination == TRUE) {
-		palette_idx = color_state.active_color;
-		trigger_len = LANG_TRIGGERS[palette_idx].end_len;	// Use end_len from the last printed color marker/trigger
-	} else {
-		palette_idx = brightness_to_palette_idx(brightness);
-		trigger_len = LANG_TRIGGERS[palette_idx].start_len;  // Use start_len from struct
+	// Cast pixel to color_t struct for proper bit access
+	struct color_t* pxl = (struct color_t*)&pixel;
+
+	// Take highest bit from each component
+	uint8_t r = (pxl->r >> 7) & 0x1;
+	uint8_t g = (pxl->g >> 7) & 0x1;
+	uint8_t b = (pxl->b >> 7) & 0x1;
+
+	// Combine into 3-bit index
+	uint8_t color_idx = (r << 2) | (g << 1) | b + 1;  // +1 since 0th index is empty/default
+
+	// Get start and end sequences
+	const char* end = LANG_TRIGGERS[last_color_idx].end;	// End PREV col
+	const char* start = LANG_TRIGGERS[color_idx].start;		// Start NEW col
+	uint8_t last_colr_idx = 0;								// Track the chars we took from the const array
+	uint8_t new_colr_idx = 0;
+
+// == LOGIC == 
+	// Add prev color end-marker (trigger terminate)
+	while (end[last_colr_idx]) {
+		chars[new_colr_idx + last_colr_idx] = end[last_colr_idx];
+		last_colr_idx++;
+	}
+	// Add new color start-marker (trigger start)
+	while (start[new_colr_idx]) {
+		chars[new_colr_idx] = start[new_colr_idx];
+		new_colr_idx++;
 	}
 
-	// Get outta here prevent buffer overrun
-	if (column_idx + trigger_len >= DOOMGENERIC_RESX)
+	// Total added last + new chars for 
+	uint8_t len = new_colr_idx + last_colr_idx;
+
+	// If exceeds RESX, return 0-written
+	uint8_t num_colr_chars = colm_idx + len;
+	uint8_t row_remaining = DOOMGENERIC_RESX - (num_colr_chars + 1);
+	if (row_remaining < 0) {
+		// This exceeds the x-res limit! Back up - use just use fill_char(s)
+		printf("X-Res exceeded");
+
 		return 0;
-
-	// Copy start sequence instead of single trigger
-	const char* sequence = LANG_TRIGGERS[palette_idx].start;
-
-	// Direct memory copy of the exact number of bytes needed
-	for (uint8_t i = 0; i < trigger_len; i++) {
-		buf[i] = sequence[i];
+		// <<<< EXIT! <<<<
 	}
 
-	// Update color state
-	color_state.active_color = palette_idx;
-	color_state.needs_termination = TRUE;
+// == FINAL == 
+	// 🔢 If odd, add one to make it even for a 2-divisible RESX (use last buf-pointer index)
+	if (len % 2 != 0) {
+		chars[new_colr_idx + last_colr_idx] += fill_char;
+		len++;
+	}
 
-	return trigger_len;
+	// 💾 Copy the chars to the buf (ascii row)
+	for (int i = 0; i < num_colr_chars; i++) {
+		*buf++ = chars[i];  // *buff++ is shorthand for "write then increment pointer"
+		len++;
+	}
+
+	// Return total number of characters written
+	return len;
 }
 
 // Edge intensity thresholds for color changes
@@ -940,7 +1024,7 @@ void DG_DrawFrame()
 #ifdef USE_COLOR
 	uint32_t color = 0xFFFFFF00;
 #endif
-	unsigned row, col;
+	unsigned row, colm;
 	struct color_t* in_pixel = (struct color_t*)DG_ScreenBuffer;
 	struct color_t** videoPixel = (struct color_t**)I_VideoBuffer; // If the image is scaled down in DG_ScreenBuffer, then use the original source video buffer
 
@@ -965,54 +1049,51 @@ void DG_DrawFrame()
 	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
 		// Track how many buffer positions we'll advance
-		uint8_t chars_written = 0;
+		last_color_idx = 0; // The 0th is default (no trig chars)
+
+		// Start a new line with MD color reset chars []
+		*buf++ = LineStartTrigger[0];
+		*buf++ = LineStartTrigger[1];
+		uint8_t chars_written = 2;		// Prev 0 but MD termination chars [] now
 
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
-		for (col = 0; col < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2 - 1; col++)
+		for (colm = 0; colm < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2 - 1; colm++)
 		{
 #ifdef HALF_SCALE
-			int edge_intensity = sobel_operator(col * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
+			int edge_intensity = sobel_operator(colm * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
 #else
 			int edge_intensity = sobel_operator(col, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 #endif 
 			//#ifdef USE_COLOR ... #endif (see commit 8533f067a2b45b and prior)
 
 			uint8_t brightness = (in_pixel->r + in_pixel->g + in_pixel->b) / 3;
-			
-			// In your main rendering loop
-			if (trigger_cooldown <= 0)
+
+			// Get the fill-char that corresponds to the brightness
+			// TODO: Weighted RGB (something like 0.299R + 0.587G + 0.114B) to better match perception. Minor optimization.
+			char v_char = grad[(brightness * grad_len) / 256]; 
+
+			// Num ascii for this pixel written to buff
+			uint8_t pxl_chars_written = 0;
+
+			// Write chars to buff (color, else regular ol' intensity-grad chars)
+			if (trigger_cooldown <= 0 && (edge_intensity < -5 || edge_intensity > 5))
 			{
-				int edge_diff = edge_intensity - last_intensity;
-				last_intensity = edge_intensity;
-				if (edge_diff > 5 || edge_diff < -5)
-				{
-					uint8_t written = fill_mapped_trigger(buf, brightness, col, row);
-					buf += written;
-					chars_written += written;
-					// Shorter cooldown to allow more color variation
-					trigger_cooldown = 3; // SHORTENED FROM 5 
-				}
+				pxl_chars_written = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, colm, v_char);
+				buf += pxl_chars_written;
+				trigger_cooldown = COLOR_COOLDOWN;
 			}
-			
-			// Else, the cooldown was not set and we need to make more chars to finish the row
-			if(trigger_cooldown < 3)
+			else
 			{
-				if (trigger_cooldown > 0)
-					trigger_cooldown--;
-
-				// Get the char that corresponds to the brightness
-				char v_char = grad[(brightness * grad_len) / 256];
-
-				// Write 2 chars for aspect ratio correction
+				// Write 1 or 2 chars to buff
 				*buf++ = v_char;
 				*buf++ = v_char;
-				
-				// Count our two ASCII chars4
-				chars_written += 2;  
+				pxl_chars_written += 2;
 			}
-
+			
 			// Advance pixel pointer only once per actual pixel
-			in_pixel++;
+			chars_written += pxl_chars_written;
+			in_pixel += pxl_chars_written / 2;
+			trigger_cooldown--;
 
 			// Optional: Debug check for buffer overrun
 #ifdef DEBUG
