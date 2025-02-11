@@ -621,7 +621,7 @@ void DG_ShutdownNotepadRenderer() {
 static int last_intensity = 0;
 static uint8_t trigger_cooldown = 0;  // Prevent triggers too close together
 
-#define MAX_COLORS_PER_ROW 10
+#define MAX_COLORS_PER_ROW 20
 #define COLOR_COOLDOWN ((DOOMGENERIC_RESX) / (MAX_COLORS_PER_ROW))
 
 // Maps color ("brightness") ranges to the color palette indices (0-15)
@@ -1084,10 +1084,12 @@ void DG_DrawFrame()
 
 			// Num ascii for this pixel written to buff
 			uint8_t pxl_chars_written = 0;
+			uint8_t delta_intensity = edge_intensity - last_intensity;
 
 			// Write chars to buff (color, else regular ol' intensity-grad chars)
-			if (trigger_cooldown <= 0)
+			if ((delta_intensity > 5 || delta_intensity < -5) && trigger_cooldown <= 0)
 			{
+				last_intensity = edge_intensity;
 				pxl_chars_written = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, colm, v_char);		// buf += pxl_chars_written ==> Now written to in 'fill_mapped_trigger()'
 				buf += pxl_chars_written;  // Make ACTUALLY NEED sure this increment is happening
 				trigger_cooldown = COLOR_COOLDOWN;
