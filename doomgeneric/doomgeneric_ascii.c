@@ -781,7 +781,7 @@ static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t col
 {
 // == VARS ==
 	// New chars to add to buf
-	char* chars[8] = { 0 };  // Array of 8 chars, initialized to zero
+	char chars[16] = { 0 };  // (using 2x the size I think it need be just in case [8]) Array of chars to write to buf
 
 	// Cast pixel to color_t struct for proper bit access
 	struct color_t* pxl = (struct color_t*)&pixel;
@@ -797,47 +797,57 @@ static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t col
 	// Get start and end sequences
 	const char* end = LANG_TRIGGERS[last_color_idx].end;	// End PREV col
 	const char* start = LANG_TRIGGERS[color_idx].start;		// Start NEW col
-	uint8_t last_colr_idx = 0;								// Track the chars we took from the const array
-	uint8_t new_colr_idx = 0;
+	last_color_idx = color_idx;
+
+	uint8_t pos_last = 0;								// Track the chars we took from the const array
+	uint8_t pos_new = 0;
 
 // == LOGIC == 
 	// Add prev color end-marker (trigger terminate)
-	while (end[last_colr_idx]) {
-		chars[new_colr_idx + last_colr_idx] = end[last_colr_idx];
-		last_colr_idx++;
+	while (pos_last < 4 && end[pos_last]) {
+		chars[pos_last] = end[pos_last];
+		pos_last++;
 	}
 	// Add new color start-marker (trigger start)
-	while (start[new_colr_idx]) {
-		chars[new_colr_idx] = start[new_colr_idx];
-		new_colr_idx++;
+	while (pos_new < 4 && start[pos_new]) {
+		chars[pos_last + pos_new] = start[pos_new];
+		pos_new++;
 	}
 
-	// Total added last + new chars for 
-	uint8_t len = new_colr_idx + last_colr_idx;
+	// Num added chars
+	uint8_t len = pos_new + pos_last;
 
-	// If exceeds RESX, return 0-written
-	uint8_t num_colr_chars = colm_idx + len;
-	uint8_t row_remaining = DOOMGENERIC_RESX - (num_colr_chars + 1);
-	if (row_remaining < 0) {
-		// This exceeds the x-res limit! Back up - use just use fill_char(s)
+	// If current row plus added chars exceeds RESX, then don't write any 
+	if ((colm_idx + len) + 1 >= DOOMGENERIC_RESX) {
 		printf("X-Res exceeded");
-
 		return 0;
 		// <<<< EXIT! <<<<
 	}
 
 // == FINAL == 
+
+	// 💾 Copy the chars to the buf (ascii row)
+	for (int i = 0; i < len; i++) {
+		*buf++ = chars[i];  // *buff++ is shorthand for "write then increment pointer"
+	}
+
 	// 🔢 If odd, add one to make it even for a 2-divisible RESX (use last buf-pointer index)
 	if (len % 2 != 0) {
-		chars[new_colr_idx + last_colr_idx] += fill_char;
+		*buf++ = fill_char;
 		len++;
 	}
 
-	// 💾 Copy the chars to the buf (ascii row)
-	for (int i = 0; i < num_colr_chars; i++) {
-		*buf++ = chars[i];  // *buff++ is shorthand for "write then increment pointer"
-		len++;
+// == DEBUG ==
+	printf("pos_last: %d, pos_new: %d, total: %d, len: %d\n", pos_last, pos_new, pos_last + pos_new, len);
+	printf("End chars: '");
+	for (int i = 0; i < 4 && end[i]; i++) {
+		printf("%c", end[i]);
 	}
+	printf("', Start chars: '");
+	for (int i = 0; i < 4 && start[i]; i++) {
+		printf("%c", start[i]);
+	}
+	printf("'\n");
 
 	// Return total number of characters written
 	return len;
@@ -1076,10 +1086,10 @@ void DG_DrawFrame()
 			uint8_t pxl_chars_written = 0;
 
 			// Write chars to buff (color, else regular ol' intensity-grad chars)
-			if (trigger_cooldown <= 0 && (edge_intensity < -5 || edge_intensity > 5))
+			if (trigger_cooldown <= 0)
 			{
-				pxl_chars_written = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, colm, v_char);
-				buf += pxl_chars_written;
+				pxl_chars_written = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, colm, v_char);		// buf += pxl_chars_written ==> Now written to in 'fill_mapped_trigger()'
+				buf += pxl_chars_written;  // Make ACTUALLY NEED sure this increment is happening
 				trigger_cooldown = COLOR_COOLDOWN;
 			}
 			else
@@ -1706,7 +1716,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 	{
 		BYTE state[256] = { 0 };
 		WORD ascii = 0;
-		GetKeyboardState(state);
+		// GetKeyboardState(state); ⚠️ NO RETURN VALUE GOTTEN! Need this?
 		ToAscii(pKeyBoard->vkCode, pKeyBoard->scanCode, state, &ascii, 0);
 		unsigned char inp = convertToDoomKey(pKeyBoard->vkCode, (char)ascii);
 
