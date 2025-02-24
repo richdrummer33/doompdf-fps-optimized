@@ -785,12 +785,13 @@ struct result_t {
 typedef struct result_t result_t;  // Optional typedef for convenience
 
 // Color threshold constants - adjust these to tune color balance
-#define RED_THRESHOLD   192  // Higher = less red   (0-255)
-#define GREEN_THRESHOLD 192  // Higher = less green (0-255)
-#define BLUE_THRESHOLD  192  // Higher = less blue  (0-255)
+#define RED_THRESHOLD   192			// Higher = less red   (0-255)
+#define GREEN_THRESHOLD 192			// Higher = less green (0-255)
+#define BLUE_THRESHOLD  192			// Higher = less blue  (0-255)
 
 // Optional: different thresholds for different brightness ranges
 #define BRIGHT_THRESHOLD 180 // Sum of RGB to be considered "bright"
+#define TOTAL_BRIGHTNESS_THRESHOLD 180
 #define DIM_THRESHOLD    75  // Sum of RGB to be considered "dim"
 
 static uint8_t brightness = 0;
@@ -799,23 +800,29 @@ static inline uint8_t get_color_bit(uint8_t value, uint8_t threshold) {
 	return (value >= threshold) ? 1 : 0;
 }
 
+static inline result_t start_col_marker(char* bufptr, uint32_t* pxlptr)
+{
+	// N/A
+}
+
+static inline result_t end_col_marker(char* bufptr, uint32_t* pxlptr)
+{
+	// N/A	
+}
+
 // Optimized trigger fill function
 // NOW simple 3-bit color mapping for 8 colors instead of intensity
 // fill_char is to fill non-even indexed chars
 static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, char fill_char)
 {
-// == VARS ==
-	// New chars to add to buf
-	char chars[16] = { 0 };  // (using 2x the size I think it need be just in case [8]) Array of chars to write to buf
+// == VARS 
+	char chars[16] = { 0 };
 	result_t result;
 
 	// Cast pixel to color_t struct for proper bit access
 	struct color_t* pxl = (struct color_t*)pxlptr;
 
-	// Get thresholded color bits						// Take highest bit from each component
-	uint8_t r = get_color_bit(pxl->r, RED_THRESHOLD);	//	uint8_t r = (pxl->r >> 7) & 0x1;
-	uint8_t g = get_color_bit(pxl->g, GREEN_THRESHOLD);	//	uint8_t g = (pxl->g >> 7) & 0x1;
-	uint8_t b = get_color_bit(pxl->b, BLUE_THRESHOLD);	//	uint8_t b = (pxl->b >> 7) & 0x1;
+	uint8_t r, g, b;
 
 	// Optional: Adjust thresholds based on brightness (avoid too much col)
 	if (brightness >= BRIGHT_THRESHOLD) {
@@ -830,19 +837,44 @@ static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, char 
 		g = get_color_bit(pxl->g, GREEN_THRESHOLD - 32);
 		b = get_color_bit(pxl->b, BLUE_THRESHOLD - 32);
 	}
+	else {
+		// Get thresholded color bits				// Take highest bit from each component
+		r = get_color_bit(pxl->r, RED_THRESHOLD);	//	uint8_t r = (pxl->r >> 7) & 0x1;
+		g = get_color_bit(pxl->g, GREEN_THRESHOLD);	//	uint8_t g = (pxl->g >> 7) & 0x1;
+		b = get_color_bit(pxl->b, BLUE_THRESHOLD);	//	uint8_t b = (pxl->b >> 7) & 0x1;
+	}
 
-	// Combine into 3-bit index
-	//uint8_t color_idx = (r << 2) | (g << 1) | b + 1;  // +1 since 0th index is empty/default
-	uint8_t color_idx = ((r << 2) | (g << 1) | b) + 1;  // FIXED! 🎯 [https://chatgpt.com/c/67ab0b59-6060-8000-99e6-0a923a477d2f]
+	// First check if the color is too bright (close to white)
+	uint8_t color_idx;
+	if (r > BRIGHT_THRESHOLD && g > BRIGHT_THRESHOLD && b > BRIGHT_THRESHOLD) {
+		// If all components are very bright, treat as no color (white)
+		color_idx = 0;
+	}
+	else if (r + g + b > TOTAL_BRIGHTNESS_THRESHOLD) {
+		// If the total brightness is high but not pure white, use grey
+		color_idx = 1;  // Points to Gray (color 2)
+	}
+	else {
+		// Otherwise use the original color indexing
+		color_idx = ((r << 2) | (g << 1) | b) + 1;
+	}
 
-	// Get start and end sequences
+	if (color_idx == last_color_idx) {
+		// No change in color
+		result.buf = bufptr;
+		result.pixel = 0;
+		return result;
+		// <<<< EXIT! <<<<
+	}
+
+// == WRITE CHARS == 
+	// Start and end marker char-arrays
 	const char* end = LANG_TRIGGERS[last_color_idx].end;	// End PREV col
 	const char* start = LANG_TRIGGERS[color_idx].start;		// Start NEW col
 
 	uint8_t pos_last = 0;								// Track the chars we took from the const array
 	uint8_t pos_new = 0;
 
-// == LOGIC == 
 	// Add prev color end-marker (trigger terminate)
 	while (pos_last < LANG_TRIGGERS[last_color_idx].end_len && end[pos_last]) { // < 4 && end[pos_last]) {
 		chars[pos_last] = end[pos_last];
@@ -858,17 +890,14 @@ static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, char 
 	uint8_t len = pos_new + pos_last;
 
 	// If current row plus added chars exceeds RESX, then don't write any 
-	// ℹ️ +1 to account for 50/50 chance it being odd and 50/50 chance it overrunning buf
-	if (chars_written + len + 1 >= CLIP_RESX - 4) {
-		//printf("X-Res exceeded. buf-len: %d, chars-written: %d", CLIP_RESX, (*chars_written));
+	if (chars_written + len + 1 >= CLIP_RESX - 4) {	 // ℹ️ +1 to account for 50/50 chance it being odd and chance it overrunning buf
 		result.buf = bufptr;
 		result.pixel = 0;
-		return result;
+		return result; 
 		// <<<< EXIT! <<<<
 	}
 
 // == FINAL == 
-
 	// Only update last-index marker if writing to buffer!
 	last_color_idx = color_idx;
 
@@ -1149,11 +1178,10 @@ void DG_DrawFrame()
 
 			// Num ascii for this pixel written to buff
 			int8_t delta_intensity = brightness - last_intensity;  // edge_intensity - last_intensity;
+			BOOL filled_char = FALSE;
 
 			// Write chars to buff (color, else regular ol' intensity-grad chars)(uint32_t*)in_pixel(uint32_t*)in_pixel
-			if (colm == 0 || edge_intensity > 200
-				&& trigger_cooldown <= 0 && colm < DOOMGENERIC_RESX - 4)
-			{
+
 				last_intensity = brightness;
 
 				// buf IS a pointer, so passed AS-IS
@@ -1164,15 +1192,17 @@ void DG_DrawFrame()
 				// NEW - update the actual ptrs
 				buf = result.buf;
 				//in_pixel = (struct color_t*)result.pixel;
-				if(result.pixel == 1)
-					in_pixel++; 
-
+				if (result.pixel == 1)
+				{
+					in_pixel++;
+					filled_char = TRUE;
+				}
 				// buf += trigger_chars;    // Advance buffer by actual chars written...
 				// pxl_chars_written = trigger_chars;   // ...but count only 2 display columns per pixel!
 				//chars_written += 2;      // Maintain uniform row-width! 👍
 				trigger_cooldown = COLOR_COOLDOWN;
-			}
-			else
+			
+			if(filled_char == FALSE)
 			{
 				// Write 1 or 2 chars to buff
 				*buf++ = v_char;
