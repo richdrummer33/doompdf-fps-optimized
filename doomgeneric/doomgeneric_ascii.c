@@ -52,6 +52,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define WIN32
 
@@ -197,8 +198,8 @@ int frame_count = 0;
 wchar_t gameWindowStr[30] = { 0 };	// Allocate
 wchar_t currWindowStr[30] = { 1 };  // Allocate
 // Key to start/stop game ticks
-char key_doUpdate = '9';
-char key_dontUpdate = '0';
+char key_doUpdate = '+';
+char key_dontUpdate = '-';
 // Flag to start rendering
 BOOL doUpdate= FALSE;
 BOOL wasPaused = FALSE;
@@ -623,7 +624,7 @@ void DG_ShutdownNotepadRenderer() {
 static int last_intensity = 0;
 static uint8_t trigger_cooldown = 0;  // Prevent triggers too close together
 
-#define MAX_COLORS_PER_ROW 20
+#define MAX_COLORS_PER_ROW 10
 #define COLOR_COOLDOWN ((DOOMGENERIC_RESX) / (MAX_COLORS_PER_ROW))
 
 // Maps color ("brightness") ranges to the color palette indices (0-15)
@@ -776,19 +777,25 @@ static const ColorTrigger LANG_TRIGGERS[] = {
 	ptr[i]    // Array indexing (same as *(ptr + i))
 */
 
+struct result_t {
+	char* buf;
+	uint32_t* pixel;
+};
+typedef struct result_t result_t;  // Optional typedef for convenience
+
+
 // Optimized trigger fill function
 // NOW simple 3-bit color mapping for 8 colors instead of intensity
 // fill_char is to fill non-even indexed chars
-static inline char* fill_mapped_trigger(char* bufptr, uint32_t pixel, uint8_t *chars_written, char fill_char)
+static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, uint16_t *chars_written, char fill_char)
 {
-	// At start of fill_mapped_trigger:
-	printf("Inside function: bufptr address: %p\n", (void*)bufptr);
 // == VARS ==
 	// New chars to add to buf
 	char chars[16] = { 0 };  // (using 2x the size I think it need be just in case [8]) Array of chars to write to buf
+	result_t result;
 
 	// Cast pixel to color_t struct for proper bit access
-	struct color_t* pxl = (struct color_t*)&pixel;
+	struct color_t* pxl = (struct color_t*)pxlptr;
 
 	// Take highest bit from each component
 	uint8_t r = (pxl->r >> 7) & 0x1;
@@ -823,9 +830,11 @@ static inline char* fill_mapped_trigger(char* bufptr, uint32_t pixel, uint8_t *c
 
 	// If current row plus added chars exceeds RESX, then don't write any 
 	// ℹ️ +1 to account for 50/50 chance it being odd and 50/50 chance it overrunning buf
-	if (((*chars_written) + len + 1) >= CLIP_RESX) {
-		printf("X-Res exceeded. buf-len: %d, chars-written: %d", CLIP_RESX, (*chars_written));
- 		return bufptr;
+	if (((*chars_written) + len + 1) >= CLIP_RESX - 4) {
+		//printf("X-Res exceeded. buf-len: %d, chars-written: %d", CLIP_RESX, (*chars_written));
+		result.buf = bufptr;
+		result.pixel = 0;
+		return result;
 		// <<<< EXIT! <<<<
 	}
 
@@ -847,7 +856,14 @@ static inline char* fill_mapped_trigger(char* bufptr, uint32_t pixel, uint8_t *c
 		len++; // For sake of debug-printing (below)
 	}
 
+	// NEW: Increment pixel ptr (half doomgeneric_resx since using clip_resx -- 2 chars poer pxl for aspect ratio)
+	// pxlptr ++;  // *buff++ is shorthand for "write then increment pointer
+	// NEW: Assign so can return 2 vals
+	result.buf = bufptr;
+	result.pixel = 1; //  pxlptr;
+
 // == DEBUG ==
+#ifdef DEBUG
 	printf("pos_last: %d, pos_new: %d, total: %d, len: %d\n", pos_last, pos_new, pos_last + pos_new, len);
 	printf("End chars: '");
 	for (int i = 0; i < 4 && end[i]; i++) {
@@ -858,16 +874,16 @@ static inline char* fill_mapped_trigger(char* bufptr, uint32_t pixel, uint8_t *c
 		printf("%c", start[i]);
 	}
 	printf("'\n");
+#endif
 
 	// Return total number of characters written
-	return bufptr;
+	return result;
 }
 
 // Edge intensity thresholds for color changes
 #define LOW_EDGE 30
 #define MID_EDGE 60
 #define HIGH_EDGE 90
-
 
 int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
 	// Sobel kernels
@@ -881,7 +897,6 @@ int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
 		{ 0, 0, 0},
 		{-1,-2,-1}
 	};
-
 	int gx = 0, gy = 0;
 
 	// Iterate over the 3x3 neighborhood
@@ -889,21 +904,23 @@ int sobel_operator(int x, int y, uint32_t* pixels, int width, int height) {
 		for (int j = -1; j <= 1; j++) {
 			int nx = x + i;
 			int ny = y + j;
-
 			// Ensure pixel is within bounds
 			if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
 				uint32_t pixel = pixels[ny * width + nx];
 				int intensity = (pixel & 0xFF) + ((pixel >> 8) & 0xFF) + ((pixel >> 16) & 0xFF);
 				intensity /= 3; // Grayscale intensity
 
-				gx += Gx[i + 1][j + 1] * intensity;
-				gy += Gy[i + 1][j + 1] * intensity;
+				// Fixed indexing here:
+				gx += Gx[j + 1][i + 1] * intensity;
+				gy += Gy[j + 1][i + 1] * intensity;
 			}
 		}
 	}
 
-	// Compute gradient magnitude
-	return sqrt(gx * gx + gy * gy);
+	// Return gradient magnitude
+	// Calculate magnitude, ensuring floating point arithmetic
+	double magnitude = sqrt((double)(gx * gx + gy * gy));
+	return (int)(magnitude + 0.5); // Round to nearest integer
 }
 
 // Add these globals
@@ -950,6 +967,8 @@ void adaptive_frame_clear(void) {
 	// Update last frame time
 	last_frame_time = current_time;
 }
+
+
 
 // DG_Render, DG_Frame, DG_Update, RenderFrames
 void DG_DrawFrame()
@@ -1072,39 +1091,51 @@ void DG_DrawFrame()
 		last_intensity = 0;
 
 		// Start a new line with MD color reset chars []
-		*buf++ = LineStartTrigger[0];
-		*buf++ = LineStartTrigger[1];
-		uint8_t chars_written = 2;		// Prev 0 but MD termination chars [] now
+		//*buf++ = LineStartTrigger[0];
+		//*buf++ = LineStartTrigger[1];
+		const uint16_t target_row_length = DOOMGENERIC_RESX * 2;  // 2 chars per pixel
+		uint8_t brightness = 0;
+
+		uint16_t chars_written = 0;
+		int colm = 0;
 
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
-		for (colm = 0; colm < DOOMGENERIC_RESX && chars_written < CLIP_RESX; colm++)
+		// ℹ️ RESX - 2 to enforce finishing line with termination given 2 chars per pixel/frame-colm
+		for (colm = 0; colm < DOOMGENERIC_RESX - 2; colm++) // chars_written < CLIP_RESX - 4
 		{
+
 #ifdef HALF_SCALE
 			int edge_intensity = sobel_operator(colm * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
 #else
-			int edge_intensity = sobel_operator(col, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+			int edge_intensity = sobel_operator(colm, row, (uint32_t*)videoPixel, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 #endif 
 			//#ifdef USE_COLOR ... #endif (see commit 8533f067a2b45b and prior)
 
-			uint8_t brightness = (in_pixel->r + in_pixel->g + in_pixel->b) / 3;
+			brightness = (in_pixel->r + in_pixel->g + in_pixel->b) / 3;
 
 			// Get the fill-char that corresponds to the brightness
 			// TODO: Weighted RGB (something like 0.299R + 0.587G + 0.114B) to better match perception. Minor optimization.
 			char v_char = grad[(brightness * grad_len) / 256]; 
 
 			// Num ascii for this pixel written to buff
-			uint8_t pxl_chars_written = 0;
 			int8_t delta_intensity = brightness - last_intensity;  // edge_intensity - last_intensity;
 
-			// Write chars to buff (color, else regular ol' intensity-grad chars)
-			if ((delta_intensity > 4 || delta_intensity < -4) && trigger_cooldown <= 0)
+			// Write chars to buff (color, else regular ol' intensity-grad chars)(uint32_t*)in_pixel(uint32_t*)in_pixel
+			if (colm == 0 || edge_intensity > 200
+				&& trigger_cooldown <= 0 && colm < DOOMGENERIC_RESX - 4)
 			{
 				last_intensity = brightness;
 
 				// buf IS a pointer, so passed AS-IS
 				// chars_written is VALUE declaration so passing ITS ADDRESS, using '&varname' (func expects pointer, as specified with *)
 				// buf pointer is LOCALLY referenced and INCREMENTED in the func, and the updated ptr value is returned and written back to the orig buf-ptr ('buf')
-				buf = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, &chars_written, v_char); 
+				result_t result = fill_mapped_trigger(buf, (uint32_t*)in_pixel, &chars_written, v_char);
+				
+				// NEW - update the actual ptrs
+				buf = result.buf;
+				//in_pixel = (struct color_t*)result.pixel;
+				if(result.pixel == 1)
+					in_pixel++; 
 
 				// buf += trigger_chars;    // Advance buffer by actual chars written...
 				// pxl_chars_written = trigger_chars;   // ...but count only 2 display columns per pixel!
@@ -1117,11 +1148,11 @@ void DG_DrawFrame()
 				*buf++ = v_char;
 				*buf++ = v_char;
 				chars_written += 2;
+				in_pixel++; // no matter how many chars written, only iterate ONE game-pixel at a time
 			}
 			
 			// Advance pixel pointer only once per actual pixel
 			// chars_written += pxl_chars_written;
-			in_pixel++; // no matter how many chars written, only iterate ONE game-pixel at a time
 			trigger_cooldown--;
 
 			// Optional: Debug check for buffer overrun
@@ -1131,6 +1162,34 @@ void DG_DrawFrame()
 			}
 #endif
 		}
+
+		// ℹ️ NEW: Enforce finishing EOL with escape trigger/marker to end the curr color marker (max len mkr-terminator is 4)
+		
+		// Recalculate remaining_space just before EOL handling
+		uint16_t resx = DOOMGENERIC_RESX;
+		uint8_t remaining_space = 2 * (resx - colm);
+		uint8_t endmkr_len = LANG_TRIGGERS[last_color_idx].end_len;
+		
+		if(remaining_space > 4) 
+			printf("\n=> mdcol_endmkr_len: %d, remaining space: %d, resx: %d\n", endmkr_len, remaining_space, resx);
+
+		if (remaining_space > endmkr_len) {
+			// First, fill with filler characters up to where the end-marker should start
+			for (int i = 0; i < remaining_space - endmkr_len; i++) {
+				*buf++ = grad[(brightness * grad_len) / 256];
+				chars_written++;
+			}
+
+			// Then, write the end-marker characters
+			for (int i = 0; i < endmkr_len; i++) {
+				*buf++ = LANG_TRIGGERS[last_color_idx].end[i];
+				chars_written++;
+			}
+		}
+
+		in_pixel += remaining_space / 2;
+
+		// Endline!
 		*buf++ = '\n';
 	}
 
@@ -1974,7 +2033,7 @@ int main(int argc, char** argv)
 		{
 			// 2. Print status
 			if (frame_count % 360 == 0) {
-				wprintf(L"Awaiting hotkey ( ']' ) to Start DOOM..\nCurrent Window: %ls\n", currWindowStr);
+				wprintf(L"Awaiting hotkey ( %d ) to Start DOOM..\nCurrent Window: %ls\n", key_doUpdate, currWindowStr);
 			}
 			// 3. Don't update doom until \ is pressed! 
 			// Sleep(15);
