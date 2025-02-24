@@ -2,11 +2,13 @@
 
 *This is a Doom source port that copies to clipboard and pastes from clipboard at full 30 FPS*
 
-...though I'm not entirely sure why anyone would want their computer to do that. It's like if you took all those demons and monsters and things from Doom, yeah, and instead of letting them live in the computer like normal demons, you make them exist by copying and pasting them over and over, which when you think about it is probably exhausting for the demons. Imagine having to be copied and pasted 30 times every second - that's more copying and pasting than my nan's done in her entire life, and she works at an office. 
+...though I'm not entirely sure why anyone would want their computer to do that. It's like if you took all those demons and monsters and things from Doom, and instead of letting them live in the computer like normal demons, you make them exist by copying and pasting them over and over, which when you think about it is probably exhausting for the demons. 
 
-WARNING: You might want to save your documents first, unless you want your important work mixed up with hell demons, which actually might make your quarterly reports more interesting when you think about it.
+Imagine having to be copied and pasted 30 times every second - that's more copying and pasting than my nan's done in her entire life, and she works at an office. 
 
-##TODO: 
+Ps. You might want to save your documents first, unless you want your important work mixed up with hell demons, which actually might make your quarterly reports more interesting when you think about it.
+
+## TODO: 
 - Can it live-stream in a shared Google Doc? Sometimes I wonder if a Google person is watching everything we type, like that time I searched for "why do clouds stay up" and then my phone showed me adverts for ladders. 
 - Create recovery procedure for when Word crashes after 3 seconds of gameplay
 - Should make Word not crash after 3 seconds. Speaking of seconds, isn't it weird how time keeps going forward? You never hear about time going sideways
@@ -30,7 +32,7 @@ Important: You should probably save your documents before playing this, because 
 
 ![Alt text](https://i.imgur.com/XXXXX.jpg)
 
-##License
+## License
 This repository is licensed under the GNU GPL v2, which is one of those serious computer rules that make sure everything's proper and legal. GNU is quite important in computers, a bit like how we have the United Nations for countries, except GNU is for when bits of computer code want to visit other computers. The GPL part stands for General Public License, because it's for the general public, which is basically everyone except computers.
 
 And the v2 means it's been checked twice, which is good because you want to be extra sure when you're dealing with demons, even if they're just computer ones. Though it does make you wonder - if a computer demon copies itself onto your clipboard, who actually owns it? The person who made the demon, or the clipboard that's keeping it safe?
