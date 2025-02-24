@@ -29,7 +29,7 @@ Some people say their computers keep pasting bits of demons even after they've t
 
 Important: You should probably save your documents before playing this, because pasting 30 pictures of demons every second is a lot of work for your computer, and it might get confused and start mixing up your important work emails with bits of hell. Though that might actually make some emails better.
 
-![My Image](https://i.imgur.com/MgAO8RY.jpg)
+![Imgur Image](https://i.imgur.com/MgAO8RY.jpg)
 
 ## License
 This repository is licensed under the GNU GPL v2, which is one of those serious computer rules that make sure everything's proper and legal. GNU is quite important in computers, a bit like how we have the United Nations for countries, except GNU is for when bits of computer code want to visit other computers. The GPL part stands for General Public License, because it's for the general public, which is basically everyone except computers.
@@ -37,7 +37,7 @@ This repository is licensed under the GNU GPL v2, which is one of those serious 
 And the v2 means it's been checked twice, which is good because you want to be extra sure when you're dealing with demons, even if they're just computer ones. Though it does make you wonder - if a computer demon copies itself onto your clipboard, who actually owns it? The person who made the demon, or the clipboard that's keeping it safe?
 
 ```
-ading2210/doompdf - Doom running inside a PDF file
+richdrummer33/doompdf-fps-optimized
 Copyright (C) 2025 ading2210
 
 This program is free software; you can redistribute it and/or modify
