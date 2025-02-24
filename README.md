@@ -1,6 +1,8 @@
 # Clipboard DOOM (...the copy-paste one)
 
-*This is a Doom source port that copies to clipboard and pastes from clipboard at full 30 FPS*... though I'm not entirely sure why anyone would want their computer to do that. It's like if you took all those demons and monsters and things from Doom, yeah, and instead of letting them live in the computer like normal demons, you make them exist by copying and pasting them over and over, which when you think about it is probably exhausting for the demons. Imagine having to be copied and pasted 30 times every second - that's more copying and pasting than my nan's done in her entire life, and she works at an office. 
+*This is a Doom source port that copies to clipboard and pastes from clipboard at full 30 FPS*
+
+...though I'm not entirely sure why anyone would want their computer to do that. It's like if you took all those demons and monsters and things from Doom, yeah, and instead of letting them live in the computer like normal demons, you make them exist by copying and pasting them over and over, which when you think about it is probably exhausting for the demons. Imagine having to be copied and pasted 30 times every second - that's more copying and pasting than my nan's done in her entire life, and she works at an office. 
 
 WARNING: You might want to save your documents first, unless you want your important work mixed up with hell demons, which actually might make your quarterly reports more interesting when you think about it.
 
