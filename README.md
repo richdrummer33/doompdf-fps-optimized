@@ -10,7 +10,6 @@ Ps. You might want to save your documents first, unless you want your important 
 
 ## TODO: 
 - Should I let people live-stream it in a shared Google Doc? Sometimes I wonder if a Google person is watching everything we type, like that time I searched for "why do clouds stay up" and then my phone showed me adverts for ladders. 
-- Create recovery procedure for when Word crashes after 3 seconds of gameplay
 - Should make Word not crash after 3 seconds. Speaking of seconds, isn't it weird how time keeps going forward? You never hear about time going sideways
 - Figure out why demons come through the clipboard. Maybe that's where all the copied text goes when you copy over it - to a demon dimension where all the forgotten words live
 Check if game runs better when you're wearing headphones. Not for the sound, just because headphones make you look more like you're doing proper computer things
