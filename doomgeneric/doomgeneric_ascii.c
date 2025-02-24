@@ -226,6 +226,7 @@ const int TARGET_FRAME_TIME = 60; // FPS=1/FRAMETIME
 static unsigned char input_buffer[INPUT_BUFFER_LEN];
 static uint16_t event_buffer[EVENT_BUFFER_LEN];
 static uint16_t* event_buf_loc;
+static uint16_t chars_written = 0;
 
 DWORD pressedKey; // RB for global KB hooks
 
@@ -716,11 +717,11 @@ static const ColorTrigger LANG_TRIGGERS[] = {
 	// ==== Bold Orange (spaces cancel)
 	{{0, 0, 0, 0}, {0, 0, 0, 0}, 0, 0},              // NO COlOR (default)
 
-	// ==== Bold Orange (spaces cancel)
-	{{'=', '=', '=', '='}, {'@', '@', 0, 0}, 4, 2},              // Orange (color 1)
-
 	// <!-- --> Comments (colored text only within)
 	{{'<', '!', '-', '-'}, {'-', '-', '>', '+'}, 4, 4},        // Gray (color 2)
+
+	// ==== Bold Orange (spaces cancel)
+	{{'=', '=', '=', '='}, {'@', '@', 0, 0}, 4, 2},              // Orange (color 1)
 
 	// `Inline Code` (colored text only within)
 	{{'`', 0, 0, 0}, {'`', 0, 0, 0}, 1, 1},                  // Green (color 3)
@@ -783,11 +784,25 @@ struct result_t {
 };
 typedef struct result_t result_t;  // Optional typedef for convenience
 
+// Color threshold constants - adjust these to tune color balance
+#define RED_THRESHOLD   192  // Higher = less red   (0-255)
+#define GREEN_THRESHOLD 192  // Higher = less green (0-255)
+#define BLUE_THRESHOLD  192  // Higher = less blue  (0-255)
+
+// Optional: different thresholds for different brightness ranges
+#define BRIGHT_THRESHOLD 180 // Sum of RGB to be considered "bright"
+#define DIM_THRESHOLD    75  // Sum of RGB to be considered "dim"
+
+static uint8_t brightness = 0;
+
+static inline uint8_t get_color_bit(uint8_t value, uint8_t threshold) {
+	return (value >= threshold) ? 1 : 0;
+}
 
 // Optimized trigger fill function
 // NOW simple 3-bit color mapping for 8 colors instead of intensity
 // fill_char is to fill non-even indexed chars
-static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, uint16_t *chars_written, char fill_char)
+static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, char fill_char)
 {
 // == VARS ==
 	// New chars to add to buf
@@ -797,10 +812,24 @@ static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, uint1
 	// Cast pixel to color_t struct for proper bit access
 	struct color_t* pxl = (struct color_t*)pxlptr;
 
-	// Take highest bit from each component
-	uint8_t r = (pxl->r >> 7) & 0x1;
-	uint8_t g = (pxl->g >> 7) & 0x1;
-	uint8_t b = (pxl->b >> 7) & 0x1;
+	// Get thresholded color bits						// Take highest bit from each component
+	uint8_t r = get_color_bit(pxl->r, RED_THRESHOLD);	//	uint8_t r = (pxl->r >> 7) & 0x1;
+	uint8_t g = get_color_bit(pxl->g, GREEN_THRESHOLD);	//	uint8_t g = (pxl->g >> 7) & 0x1;
+	uint8_t b = get_color_bit(pxl->b, BLUE_THRESHOLD);	//	uint8_t b = (pxl->b >> 7) & 0x1;
+
+	// Optional: Adjust thresholds based on brightness (avoid too much col)
+	if (brightness >= BRIGHT_THRESHOLD) {
+		// For very bright pixels, be more selective
+		r = get_color_bit(pxl->r, RED_THRESHOLD + 32);
+		g = get_color_bit(pxl->g, GREEN_THRESHOLD + 32);
+		b = get_color_bit(pxl->b, BLUE_THRESHOLD + 32);
+	}
+	else if (brightness <= DIM_THRESHOLD) {
+		// For dim pixels, be more lenient
+		r = get_color_bit(pxl->r, RED_THRESHOLD - 32);
+		g = get_color_bit(pxl->g, GREEN_THRESHOLD - 32);
+		b = get_color_bit(pxl->b, BLUE_THRESHOLD - 32);
+	}
 
 	// Combine into 3-bit index
 	//uint8_t color_idx = (r << 2) | (g << 1) | b + 1;  // +1 since 0th index is empty/default
@@ -830,7 +859,7 @@ static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, uint1
 
 	// If current row plus added chars exceeds RESX, then don't write any 
 	// ℹ️ +1 to account for 50/50 chance it being odd and 50/50 chance it overrunning buf
-	if (((*chars_written) + len + 1) >= CLIP_RESX - 4) {
+	if (chars_written + len + 1 >= CLIP_RESX - 4) {
 		//printf("X-Res exceeded. buf-len: %d, chars-written: %d", CLIP_RESX, (*chars_written));
 		result.buf = bufptr;
 		result.pixel = 0;
@@ -846,13 +875,13 @@ static inline result_t fill_mapped_trigger(char* bufptr, uint32_t* pxlptr, uint1
 	// 💾 Copy the chars to the buf (ascii row)
 	for (int i = 0; i < len; i++) {
 		*bufptr++ = chars[i];  // *buff++ is shorthand for "write then increment pointer"
-		(*chars_written)++; // Don't increment pointer, increment value at the pointer's mem location 
+		chars_written++; // Don't increment pointer, increment value at the pointer's mem location 
 	}
 
 	// 🔢 If odd, add one to make it even for a 2-divisible RESX (use last buf-pointer index)
 	if (len % 2 != 0) {
 		*bufptr++ = fill_char;
-		(*chars_written)++;
+		chars_written++;
 		len++; // For sake of debug-printing (below)
 	}
 
@@ -1094,10 +1123,11 @@ void DG_DrawFrame()
 		//*buf++ = LineStartTrigger[0];
 		//*buf++ = LineStartTrigger[1];
 		const uint16_t target_row_length = DOOMGENERIC_RESX * 2;  // 2 chars per pixel
-		uint8_t brightness = 0;
 
-		uint16_t chars_written = 0;
+		// Define / reset counters
 		int colm = 0;
+		chars_written = 0;
+
 
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
 		// ℹ️ RESX - 2 to enforce finishing line with termination given 2 chars per pixel/frame-colm
@@ -1129,7 +1159,7 @@ void DG_DrawFrame()
 				// buf IS a pointer, so passed AS-IS
 				// chars_written is VALUE declaration so passing ITS ADDRESS, using '&varname' (func expects pointer, as specified with *)
 				// buf pointer is LOCALLY referenced and INCREMENTED in the func, and the updated ptr value is returned and written back to the orig buf-ptr ('buf')
-				result_t result = fill_mapped_trigger(buf, (uint32_t*)in_pixel, &chars_written, v_char);
+				result_t result = fill_mapped_trigger(buf, (uint32_t*)in_pixel, v_char);
 				
 				// NEW - update the actual ptrs
 				buf = result.buf;
