@@ -102,6 +102,8 @@
 // Scintilla
 #define SCI_SELECTALL 2013
 #define SCI_CLEARALL 2004
+// X-res count
+#define CLIP_RESX (DOOMGENERIC_RESX * 2 - 1)
 #endif //  DISP_CLIPBOARD
 
 
@@ -723,13 +725,13 @@ static const ColorTrigger LANG_TRIGGERS[] = {
 	{{'`', 0, 0, 0}, {'`', 0, 0, 0}, 1, 1},                  // Green (color 3)
 
 	// // Line comments (spaces cancel)
-	{{'/', '/', 0, 0}, {'@', '@', 0, 0}, 2, 1},                  // Purple (color 4)
+	{{'/', '/', 0, 0}, {'@', '@', 0, 0}, 2, 2},                  // Purple (color 4)
 
 	// [Bracketed text] (spaces cancel)
 	{{'[', 0, 0, 0}, {']', 0, 0, 0}, 1, 1},                  // Purple (color 4)
 
 	// Special characters for Bold Light Blue (spaces cancel)
-	{{'@', '<', '>', '`'}, {':', '-', ':', 0}, 1, 0},        // Light Blue (color 5)
+	{{'@', '<', '>', '`'}, {':', '-', ':', 0}, 4, 3},        // Light Blue (color 5)
 	//{{':','|', ':', '|'}, {':', '|', 0, 0}, 1, 0},          // Light Blue (color 5)
 
 	// _ Dark Blue (spaces cancel)
@@ -777,8 +779,10 @@ static const ColorTrigger LANG_TRIGGERS[] = {
 // Optimized trigger fill function
 // NOW simple 3-bit color mapping for 8 colors instead of intensity
 // fill_char is to fill non-even indexed chars
-static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t colm_idx, char fill_char)
+static inline char* fill_mapped_trigger(char* bufptr, uint32_t pixel, uint8_t *chars_written, char fill_char)
 {
+	// At start of fill_mapped_trigger:
+	printf("Inside function: bufptr address: %p\n", (void*)bufptr);
 // == VARS ==
 	// New chars to add to buf
 	char chars[16] = { 0 };  // (using 2x the size I think it need be just in case [8]) Array of chars to write to buf
@@ -792,24 +796,24 @@ static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t col
 	uint8_t b = (pxl->b >> 7) & 0x1;
 
 	// Combine into 3-bit index
-	uint8_t color_idx = (r << 2) | (g << 1) | b + 1;  // +1 since 0th index is empty/default
+	//uint8_t color_idx = (r << 2) | (g << 1) | b + 1;  // +1 since 0th index is empty/default
+	uint8_t color_idx = ((r << 2) | (g << 1) | b) + 1;  // FIXED! 🎯 [https://chatgpt.com/c/67ab0b59-6060-8000-99e6-0a923a477d2f]
 
 	// Get start and end sequences
 	const char* end = LANG_TRIGGERS[last_color_idx].end;	// End PREV col
 	const char* start = LANG_TRIGGERS[color_idx].start;		// Start NEW col
-	last_color_idx = color_idx;
 
 	uint8_t pos_last = 0;								// Track the chars we took from the const array
 	uint8_t pos_new = 0;
 
 // == LOGIC == 
 	// Add prev color end-marker (trigger terminate)
-	while (pos_last < 4 && end[pos_last]) {
+	while (pos_last < LANG_TRIGGERS[last_color_idx].end_len && end[pos_last]) { // < 4 && end[pos_last]) {
 		chars[pos_last] = end[pos_last];
 		pos_last++;
 	}
 	// Add new color start-marker (trigger start)
-	while (pos_new < 4 && start[pos_new]) {
+	while (pos_new < LANG_TRIGGERS[color_idx].start_len && start[pos_new]) {// < 4 && start[pos_new]) {
 		chars[pos_last + pos_new] = start[pos_new];
 		pos_new++;
 	}
@@ -818,23 +822,29 @@ static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t col
 	uint8_t len = pos_new + pos_last;
 
 	// If current row plus added chars exceeds RESX, then don't write any 
-	if ((colm_idx + len) + 1 >= DOOMGENERIC_RESX) {
-		printf("X-Res exceeded");
-		return 0;
+	// ℹ️ +1 to account for 50/50 chance it being odd and 50/50 chance it overrunning buf
+	if (((*chars_written) + len + 1) >= CLIP_RESX) {
+		printf("X-Res exceeded. buf-len: %d, chars-written: %d", CLIP_RESX, (*chars_written));
+ 		return bufptr;
 		// <<<< EXIT! <<<<
 	}
 
 // == FINAL == 
 
+	// Only update last-index marker if writing to buffer!
+	last_color_idx = color_idx;
+
 	// 💾 Copy the chars to the buf (ascii row)
 	for (int i = 0; i < len; i++) {
-		*buf++ = chars[i];  // *buff++ is shorthand for "write then increment pointer"
+		*bufptr++ = chars[i];  // *buff++ is shorthand for "write then increment pointer"
+		(*chars_written)++; // Don't increment pointer, increment value at the pointer's mem location 
 	}
 
 	// 🔢 If odd, add one to make it even for a 2-divisible RESX (use last buf-pointer index)
 	if (len % 2 != 0) {
-		*buf++ = fill_char;
-		len++;
+		*bufptr++ = fill_char;
+		(*chars_written)++;
+		len++; // For sake of debug-printing (below)
 	}
 
 // == DEBUG ==
@@ -850,7 +860,7 @@ static inline uint8_t fill_mapped_trigger(char* buf, uint32_t pixel, uint8_t col
 	printf("'\n");
 
 	// Return total number of characters written
-	return len;
+	return bufptr;
 }
 
 // Edge intensity thresholds for color changes
@@ -1053,13 +1063,13 @@ void DG_DrawFrame()
 	}
 #endif // DISP_CLIPBOARD
 	trigger_cooldown = 0; // For XML-color trigger ascii sequences min-gap
-	last_intensity = 0;
 
 	// LOOP THRU ALL ROWS 
 	for (row = 0; row < DOOMGENERIC_RESY; row++)
 	{
 		// Track how many buffer positions we'll advance
 		last_color_idx = 0; // The 0th is default (no trig chars)
+		last_intensity = 0;
 
 		// Start a new line with MD color reset chars []
 		*buf++ = LineStartTrigger[0];
@@ -1067,7 +1077,7 @@ void DG_DrawFrame()
 		uint8_t chars_written = 2;		// Prev 0 but MD termination chars [] now
 
 		// FOR EVERY ROW, DRAW HORIZONTALLY AT REX-X
-		for (colm = 0; colm < DOOMGENERIC_RESX && chars_written < DOOMGENERIC_RESX * 2 - 1; colm++)
+		for (colm = 0; colm < DOOMGENERIC_RESX && chars_written < CLIP_RESX; colm++)
 		{
 #ifdef HALF_SCALE
 			int edge_intensity = sobel_operator(colm * 2, row * 2, (uint32_t*)videoPixel, SCREENHEIGHT, SCREENWIDTH);
@@ -1084,14 +1094,21 @@ void DG_DrawFrame()
 
 			// Num ascii for this pixel written to buff
 			uint8_t pxl_chars_written = 0;
-			uint8_t delta_intensity = edge_intensity - last_intensity;
+			int8_t delta_intensity = brightness - last_intensity;  // edge_intensity - last_intensity;
 
 			// Write chars to buff (color, else regular ol' intensity-grad chars)
-			if ((delta_intensity > 5 || delta_intensity < -5) && trigger_cooldown <= 0)
+			if ((delta_intensity > 4 || delta_intensity < -4) && trigger_cooldown <= 0)
 			{
-				last_intensity = edge_intensity;
-				pxl_chars_written = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, colm, v_char);		// buf += pxl_chars_written ==> Now written to in 'fill_mapped_trigger()'
-				buf += pxl_chars_written;  // Make ACTUALLY NEED sure this increment is happening
+				last_intensity = brightness;
+
+				// buf IS a pointer, so passed AS-IS
+				// chars_written is VALUE declaration so passing ITS ADDRESS, using '&varname' (func expects pointer, as specified with *)
+				// buf pointer is LOCALLY referenced and INCREMENTED in the func, and the updated ptr value is returned and written back to the orig buf-ptr ('buf')
+				buf = fill_mapped_trigger(buf, *(uint32_t*)in_pixel, &chars_written, v_char); 
+
+				// buf += trigger_chars;    // Advance buffer by actual chars written...
+				// pxl_chars_written = trigger_chars;   // ...but count only 2 display columns per pixel!
+				//chars_written += 2;      // Maintain uniform row-width! 👍
 				trigger_cooldown = COLOR_COOLDOWN;
 			}
 			else
@@ -1099,12 +1116,12 @@ void DG_DrawFrame()
 				// Write 1 or 2 chars to buff
 				*buf++ = v_char;
 				*buf++ = v_char;
-				pxl_chars_written += 2;
+				chars_written += 2;
 			}
 			
 			// Advance pixel pointer only once per actual pixel
-			chars_written += pxl_chars_written;
-			in_pixel += pxl_chars_written / 2;
+			// chars_written += pxl_chars_written;
+			in_pixel++; // no matter how many chars written, only iterate ONE game-pixel at a time
 			trigger_cooldown--;
 
 			// Optional: Debug check for buffer overrun
